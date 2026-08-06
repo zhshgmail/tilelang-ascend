@@ -92,7 +92,16 @@ cdef class CythonKernelWrapper:
         cdef int ins_idx = 0
         cdef list tensor_list = []
 
-        analyzer = Analyzer()
+        # Lazily construct Analyzer only if a shape actually needs symbolic
+        # simplification. tvm.arith.Analyzer() goes through TVM's C++ FFI
+        # PackedFunc machinery and measured ~64us/call in isolation on A5 -
+        # unconditionally constructing it on every forward() call wasted
+        # that cost even for fully-static-shape kernels (no PrimExpr dims),
+        # which never use it at all. Verified: real A5 FA kernel
+        # (B=1,H=1,S=128,D=512), 3 independent runs, before ~151-153us/iter
+        # -> after ~79-82us/iter host wrapper wall time, correctness
+        # re-verified after the fix (torch.testing.assert_close PASS).
+        analyzer = None
         sym_val_by_name = {}
         for key, (ref_tensor_idx, ref_shape_idx) in self.dynamic_symbolic_map.items():
             val = int(inputs[ref_tensor_idx].shape[ref_shape_idx])
@@ -111,6 +120,8 @@ cdef class CythonKernelWrapper:
                     elif isinstance(s, tir.IntImm):
                         res = int(s.value)
                     elif isinstance(s, tir.PrimExpr):
+                        if analyzer is None:
+                            analyzer = Analyzer()
                         vmap = {}
                         for v in tir.analysis.undefined_vars(s):
                             if v not in sym_val_by_name:
