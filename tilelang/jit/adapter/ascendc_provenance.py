@@ -129,6 +129,15 @@ def _capture_dependency(
         )
     copied_patch = provenance_dir / patch_path.name
     shutil.copyfile(patch_path, copied_patch)
+    recursive_status = _run(
+        ["git", "submodule", "status", "--recursive"], cwd=dependency
+    ).stdout.splitlines()
+    unclean_submodules = [line for line in recursive_status if not line.startswith(" ")]
+    if unclean_submodules:
+        raise AscendCProvenanceError(
+            f"{submodule} has unavailable or divergent nested submodules: "
+            f"{unclean_submodules}"
+        )
     return {
         "path": submodule,
         "gitlink": gitlink,
@@ -138,6 +147,7 @@ def _capture_dependency(
         "status": _git(
             dependency, "status", "--porcelain=v1", "--untracked-files=all"
         ).splitlines(),
+        "recursive_submodules": recursive_status,
     }
 
 
