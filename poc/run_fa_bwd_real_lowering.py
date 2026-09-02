@@ -20,7 +20,7 @@ from tilelang import tvm
 from tilelang.jit.adapter.libgen import LibraryGenerator
 
 from poc.fa_bwd_symbolic_lowering import make_fa_bwd_scalar
-from tilelang.jit.adapter import ascendc_dispatch
+from tilelang.jit.adapter import ascendc_dispatch, ascendc_provenance
 
 
 def sha256(path: Path) -> str:
@@ -312,6 +312,7 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--cases", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--source-observation", type=Path, required=True)
     args = parser.parse_args()
 
     args.output.mkdir(parents=True, exist_ok=False)
@@ -381,6 +382,30 @@ def main() -> int:
     planner_controls = run_planner_controls(
         args.repo, args.cases, args.output / "planner_controls"
     )
+    generated_artifacts = [path for path in generated.rglob("*") if path.is_file()]
+    provenance_path, provenance_record = ascendc_provenance.capture_build_provenance(
+        repo=args.repo,
+        bundle_root=args.output,
+        source_observation_path=args.source_observation,
+        artifact_paths=generated_artifacts,
+        input_paths={"fa_bwd_fixed50_cases.json": args.cases},
+        dependency_patches={
+            "3rdparty/tvm": args.repo
+            / "poc"
+            / "patches"
+            / "tvm_dynamic_slice_unit_step.patch"
+        },
+        toolchain="bisheng",
+        target={
+            "backend": "ascendc",
+            "platform": "A5",
+            "npu_arch": "dav-3510",
+            "catlass_arch": "3510",
+        },
+    )
+    provenance_controls = ascendc_provenance.run_provenance_negative_controls(
+        provenance_path, args.output, args.source_observation
+    )
     result = {
         "authority": "AUTHOR_EVIDENCE_ONLY",
         "npu_used": False,
@@ -423,12 +448,24 @@ def main() -> int:
         },
         "symbol_isolation": symbol_isolation,
         "planner_controls": planner_controls,
+        "build_provenance": {
+            "path": str(provenance_path.relative_to(args.output)),
+            "sha256": sha256(provenance_path),
+            "source_commit": provenance_record["source_repo"]["commit"],
+            "source_tree": provenance_record["source_repo"]["tree"],
+            "source_observed_at_utc": provenance_record["source_observation"][
+                "observed_at_utc"
+            ],
+            "positive_consumer": "PASS",
+            "negative_controls": provenance_controls,
+        },
         "device_execution": "NOT_RUN_NO_NPU_ADMISSION",
         "numerical_precision": "NOT_MEASURED",
         "performance": "NOT_MEASURED",
     }
     write_json(args.output / "RESULT.json", result)
     manifest = write_manifest(args.output)
+    ascendc_provenance.verify_bundle_manifest(args.output)
     print(json.dumps(result, indent=2, sort_keys=True))
     print(f"manifest={manifest} sha256={sha256(manifest)}")
     return 0

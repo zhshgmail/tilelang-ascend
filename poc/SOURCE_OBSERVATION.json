@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-09-02T17:06:28Z",
+  "official": {
+    "remote": "https://github.com/tile-ai/tilelang-ascend.git",
+    "ref": "refs/heads/ascendc_pto",
+    "head": "01e7254dc51685fd77f41e5807c42e6537e17645",
+    "previous_head": "5e1dbfa15602642938d289ca561279a0c989a234",
+    "new_commits": [
+      "9db5cd84a93ad2731bceef834caf0c1ef8f83188",
+      "da5b98a28861836ee85836d6eaf6baf3a6373855",
+      "01e7254dc51685fd77f41e5807c42e6537e17645"
+    ]
+  },
+  "colleague_a3": {
+    "remote": "https://github.com/wzzll123/tilelang-ascend.git",
+    "ref": "refs/heads/ascendc_pto",
+    "head": "b0dcbf42fbc4ce7e28d594b50b3dba8a7b29e093",
+    "previous_head": "4df68b237f235619a96a8106e21fbcd1830528f4",
+    "new_commits": [
+      "b0dcbf42fbc4ce7e28d594b50b3dba8a7b29e093"
+    ]
+  },
+  "pull_requests": [
+    {
+      "number": 1335,
+      "state": "open",
+      "head": "d484bdc01b3ac641435d46c86ce6be584dec407f",
+      "url": "https://github.com/tile-ai/tilelang-ascend/pull/1335",
+      "relevance": "symbolic address and size in Ascend memory planning and codegen"
+    },
+    {
+      "number": 1452,
+      "state": "open",
+      "head": "32fb712acc3bb25236b82986666f62f6cbce688c",
+      "url": "https://github.com/tile-ai/tilelang-ascend/pull/1452",
+      "relevance": "high-rank compact GM and UB copy flattening"
+    },
+    {
+      "number": 1693,
+      "state": "open",
+      "head": "6df22a907b813c239af542f4e032fb3e8a44ee35",
+      "url": "https://github.com/tile-ai/tilelang-ascend/pull/1693",
+      "relevance": "TND shared-prefix FlashAttention implementation"
+    },
+    {
+      "number": 1702,
+      "state": "open",
+      "head": "2b5cc9b705e3142524126d4f2f727498896d596a",
+      "url": "https://github.com/tile-ai/tilelang-ascend/pull/1702",
+      "relevance": "native A5 AscendC target support"
+    },
+    {
+      "number": 1708,
+      "state": "open",
+      "head": "d6b6339cad33594fbbe7b779449b65020308ee8a",
+      "url": "https://github.com/tile-ai/tilelang-ascend/pull/1708",
+      "relevance": "A5 AscendC backend roadmap"
+    },
+    {
+      "number": 1723,
+      "state": "open",
+      "head": "b8d65d0077cd610e457bfa9b449ff1b4c3bc2953",
+      "url": "https://github.com/tile-ai/tilelang-ascend/pull/1723",
+      "relevance": "multi-tile unaligned K-tail correctness"
+    },
+    {
+      "number": 1724,
+      "state": "open",
+      "head": "e2388395efeb1665871cb9e5fa17e071b5e36e37",
+      "url": "https://github.com/tile-ai/tilelang-ascend/pull/1724",
+      "relevance": "FP16 reduce_sum widened accumulation for AscendC and PTO"
+    }
+  ],
+  "packaging_rejection": {
+    "commit": "003aed3f5316855d181a34084644be664c112527",
+    "reason": "README and PROVENANCE mixed source heads observed at different times",
+    "locators": [
+      "README.md:14",
+      "README.md:61",
+      "README.md:63",
+      "docs/PROVENANCE.md:39-48"
+    ]
+  }
+}
