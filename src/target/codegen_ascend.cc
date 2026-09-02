@@ -1132,11 +1132,18 @@ void CodeGenTileLangAscend::ProcessTilingInput(
 void CodeGenTileLangAscend::PrintHostFunc(
     const PrimFunc &f, const std::string &name, std::ostringstream &os,
     std::string &core, std::vector<const tir::VarNode *> &shape_vars) {
-  // TODO: implement dynamic shape version
+  // A multi-variant symbolic bundle must not emit several colliding "call"
+  // symbols. Keep the legacy ABI by default, while allowing the bundle
+  // planner to give each dtype-specialized kernel a stable private entry.
+  std::string host_entry{"call"};
+  if (auto attr = f->GetAttr<String>("ascendc_host_entry"); attr.defined()) {
+    host_entry = static_cast<std::string>(attr.value());
+  }
+  ICHECK(!host_entry.empty()) << "ascendc_host_entry must not be empty";
   std::vector<std::string> tiling_args;
   std::string tiling_func_name = name;
   ProcessTilingInput(os, tiling_func_name, tiling_args, shape_vars);
-  os << "extern \"C\" void call(";
+  os << "extern \"C\" void " << host_entry << "(";
   std::vector<std::string> arg_names;
   for (size_t i = 0; i < f->params.size(); ++i) {
     auto v = f->params[i];

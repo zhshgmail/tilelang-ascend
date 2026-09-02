@@ -483,5 +483,19 @@ def test_a5_native_ascendc_symbolic_shape_uses_one_runtime_abi():
     assert "int64_t seq" in signatures[0]
 
 
+def test_a5_ascendc_symbolic_variant_can_use_private_host_entry():
+    """Three dtype variants must not collide on the legacy call symbol."""
+    prim_func = _multi_var_composite_shape().with_attr(
+        "ascendc_host_entry", "call_fa_bwd_fp16"
+    )
+    code = _compile_symbolic_and_get_source(
+        prim_func,
+        target="ascendc",
+        platform="A5",
+    )
+    assert 'extern "C" void call_fa_bwd_fp16(' in code
+    assert 'extern "C" void call(' not in code
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
