@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-- `observed_at`: `2026-09-02T06:13:40Z`
+- `observed_at`: `2026-09-02T07:25:00Z`
 - operator: `29_FlashAttentionBwd`
 - mode: isolated compiler author PoC, card-free only
 - authority: `AUTHOR_EVIDENCE_ONLY`
@@ -86,8 +86,10 @@ Kernel-count baselines:
 
 The patch is intentionally limited to the AscendC backend/PoC surfaces:
 
-- `src/target/codegen_ascend.cc`: permits a PrimFunc `ascendc_host_entry`
-  attribute to select the generated host wrapper symbol.
+- `src/target/codegen_ascend.cc`: permits independent PrimFunc
+  `ascendc_host_entry` and `ascendc_kernel_entry` attributes. The latter is
+  used for both the generated device definition and the host wrapper launch,
+  so every variant DSO has a compiler-owned, non-colliding device entry.
 - `tilelang/jit/adapter/ascendc_dispatch.py`: validates the fixed-rank/runtime-
   extent contract, groups only by dtype, renders one checked public dispatcher,
   and matches the actual AscendC host-wrapper ABI.
@@ -122,9 +124,9 @@ Result:
 
 | dtype | generated source SHA256 | A5 ELF SHA256 | build |
 |---|---|---|---|
-| BF16 | `e4b40e2a053ade21f6559ce56c411fbfb3e34c65cf76223e28c47fbd66da5aa3` | `b4d66e1d52b62ff3a43a28dfd67344d69e39e70886fb102e0bf188c1deab93d5` | rc=0 |
-| FP16 | `4261ff994e927602ea0673fc6d181569a8efdf10e898735d2d04ed0bba387112` | `99ef12ac4e384fd1b95a93dabb404d411e5deb12f2441f81b0e650274a9c2f2b` | rc=0 |
-| FP32 | `e180007ce9cebad9d9800a2b7f5c63dfb10fe0210e992819cb16053d525f399c` | `f91cf3206ef438d402bda8e18e547383558b1f2536c2b1c48bedd41971f2b419` | rc=0 |
+| BF16 | `85a99bd0d8f98c9639955e7bc46151d1d5d406ebccb7898a66d3d24cf97626ff` | `6d93de186fcc9fd5dee2ed90a3f8029d3e8af540cff557fd49f4791d7adfbd49` | rc=0 |
+| FP16 | `7af413043df3e806c464b079dfbee0d0eb3ad5feb53b4d2d7ce42ea27b480f1a` | `a10e2e91758466ba08c026900fd437e14b677149e48486f051d6a7aa18678509` | rc=0 |
+| FP32 | `b07754fc297b0a49ab0db74006ed199c8f07f289a8045fc5d663e25fe6492f3e` | `04edbe0711535fcae85ca6d51ab6cca69c91e7d18a5985ec6b70a91ab5d2ec83` | rc=0 |
 
 Host dispatcher:
 
@@ -133,6 +135,34 @@ Host dispatcher:
   `c64c5b822b0b5f51c301b56adcef1aec2466fb46f80dfc9e320bba0cfb918ec9`
 - `DT_NEEDED`: exactly the three typed FA libraries above plus normal runtime dependencies
 - `RTLD_NOW`: PASS without calling a device wrapper
+
+### Rejected symbol-interposition design and repair
+
+The first author commit, `a5754b8b941a0df3b1aaa5ee30bdddae0ac3bbe6`,
+is retained as a rejected ancestor. A non-author review found that all three
+typed DSOs exported the same `GLOBAL DEFAULT main_kernel`. Independent
+reproduction with `LD_DEBUG=bindings` showed that the BF16 and FP32 host
+wrappers bound their `main_kernel` relocations to the FP16 DSO loaded first.
+That made the earlier multi-variant result unsafe even though all builds and
+host routing controls were green.
+
+The repair is in the compiler code generator rather than the dispatcher:
+each PrimFunc now carries a dtype-specific `ascendc_kernel_entry`, and the
+generated host wrapper launches that same entry. The public host ABI remains
+`tilelang_fa_bwd_call`; the private wrapper ABI remains
+`call_fa_bwd_fp16/bf16/fp32`.
+
+Card-free discriminators on the rebuilt DSOs passed:
+
+| dtype | device entry | `nm -D` / `readelf -Ws` | relocation | `LD_DEBUG=bindings` |
+|---|---|---|---|---|
+| FP16 | `fa_bwd_fp16_kernel` | defined; `main_kernel` absent | names FP16 entry | FP16 DSO to itself |
+| BF16 | `fa_bwd_bf16_kernel` | defined; `main_kernel` absent | names BF16 entry | BF16 DSO to itself |
+| FP32 | `fa_bwd_fp32_kernel` | defined; `main_kernel` absent | names FP32 entry | FP32 DSO to itself |
+
+The repaired dispatcher load returned 0, and the complete loader trace has no
+`normal symbol \`main_kernel\`` binding. The rejected control and repaired
+`nm`/`readelf`/loader traces are retained in the external evidence bundle.
 
 Generated-source guards passed for every dtype: the runtime extent arguments
 are present, Q/K/V/DY and softmax inputs are consumed, DQ/DK/DV are written,
@@ -145,13 +175,13 @@ Tests:
 - rank-change negative control: rejected
 - `D % 8 != 0` negative control: rejected
 - selected compiler tests:
-  `3 passed, 16 deselected` (`pytest` rc=0)
+  `4 passed, 16 deselected` (`pytest` rc=0)
 - `git diff --cached --check`: PASS before author commit
 
 External generated/build evidence (not committed because it contains ELF and
 generated artifacts):
 
-`root@141.61.33.141:/home/zheng/codex02_tilelang_fa_symbolic_build_20260902T0510Z/evidence/real_fa_bwd_symbolic_20260902T0620Z/`
+`root@141.61.33.141:/home/zheng/codex02_tilelang_fa_symbolic_build_20260902T0510Z/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/`
 
 The final external `MANIFEST.sha256` binds every generated source, ELF, host
 dispatcher, compiler output, test log, and result receipt.
@@ -167,6 +197,8 @@ Proved as author evidence:
 - B/Sq/Sk/Hq/Hk/D reach the generated host wrapper and device body as runtime
   values;
 - all three variants build successfully for `dav-3510` without an NPU;
+- the three wrappers resolve to three distinct device entries, with no generic
+  `main_kernel` definition, relocation, or cross-DSO binding;
 - rank variation remains outside this ABI and fails loudly.
 
 Not proved:
@@ -196,3 +228,15 @@ Then, on a freshly admitted A5 device, an independent consumer must:
 6. measure same-candidate performance against the product reference.
 
 Until those gates pass, the correct status is `AUTHOR_BUILD_PASS / DEVICE_NOT_RUN`.
+
+## Architecture assessment
+
+`architecture: OK` for author evidence. The change is a compiler-owned
+multi-variant primitive rather than an archive/dispatcher patch; it adds a
+deterministic fail-closed symbol discriminator and keeps host plus device
+artifacts in the closure. This follows the local architecture source of truth,
+`HARNESS_DESIGN_PHILOSOPHY.md` sections 4(c), 4(e), and 4(g). The a5_ops
+`architecture_lint.py` is not applicable to this external TileLang compiler
+repository, so the concrete regression test, `nm`/`readelf`, and loader-binding
+controls are the executable gate. This remains an author assessment and does
+not replace fresh non-author review of the repair commit.

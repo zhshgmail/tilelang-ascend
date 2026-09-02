@@ -35,10 +35,10 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmp17xq9bu1.cpp",
+      "/tmp/tmpvuwoos4t.cpp",
       "-O2",
       "-o",
-      "/tmp/tmp17xq9bu1.so"
+      "/tmp/tmpvuwoos4t.so"
     ],
     "float16": [
       "bisheng",
@@ -70,10 +70,10 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmpzv365gdc.cpp",
+      "/tmp/tmpp9fshwi4.cpp",
       "-O2",
       "-o",
-      "/tmp/tmpzv365gdc.so"
+      "/tmp/tmpp9fshwi4.so"
     ],
     "float32": [
       "bisheng",
@@ -105,16 +105,16 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmpvu79kapd.cpp",
+      "/tmp/tmp3q2shqeu.cpp",
       "-O2",
       "-o",
-      "/tmp/tmpvu79kapd.so"
+      "/tmp/tmp3q2shqeu.so"
     ]
   },
   "case_manifest": {
     "count": 50,
-    "path": "/work/op29_fa_bwd_fixed50_shapes.csv",
-    "sha256": "8f0b9b816fe534832a1549e03047cb4e10d468c64043bdc4c4339fe2378dd188"
+    "path": "/work/repo/poc/inputs/op29_fa_bwd_fixed50_shapes.csv",
+    "sha256": "6cb3fef12299b661ec01923e5216f135aa5be0fbe97abb5aad60f21684efd889"
   },
   "device_execution": "NOT_RUN_NO_NPU_ADMISSION",
   "generated_source_guards": {
@@ -124,11 +124,14 @@
         "ABI_ONLY",
         "non-numerical"
       ],
+      "generic_device_entry_absent": true,
+      "kernel_entry": "fa_bwd_bf16_kernel",
       "lifted_scalar_accumulators_absent": true,
       "per_output_accumulator_resets": 3,
       "required_tokens": [
         "extern \"C\" void call_fa_bwd_bf16",
-        "extern \"C\" __global__ __aicore__ void main_kernel",
+        "extern \"C\" __global__ __aicore__ void fa_bwd_bf16_kernel",
+        "fa_bwd_bf16_kernel<<<",
         "int64_t B",
         "int64_t Sq",
         "int64_t Sk",
@@ -154,11 +157,14 @@
         "ABI_ONLY",
         "non-numerical"
       ],
+      "generic_device_entry_absent": true,
+      "kernel_entry": "fa_bwd_fp16_kernel",
       "lifted_scalar_accumulators_absent": true,
       "per_output_accumulator_resets": 3,
       "required_tokens": [
         "extern \"C\" void call_fa_bwd_fp16",
-        "extern \"C\" __global__ __aicore__ void main_kernel",
+        "extern \"C\" __global__ __aicore__ void fa_bwd_fp16_kernel",
+        "fa_bwd_fp16_kernel<<<",
         "int64_t B",
         "int64_t Sq",
         "int64_t Sk",
@@ -184,11 +190,14 @@
         "ABI_ONLY",
         "non-numerical"
       ],
+      "generic_device_entry_absent": true,
+      "kernel_entry": "fa_bwd_fp32_kernel",
       "lifted_scalar_accumulators_absent": true,
       "per_output_accumulator_resets": 3,
       "required_tokens": [
         "extern \"C\" void call_fa_bwd_fp32",
-        "extern \"C\" __global__ __aicore__ void main_kernel",
+        "extern \"C\" __global__ __aicore__ void fa_bwd_fp32_kernel",
+        "fa_bwd_fp32_kernel<<<",
         "int64_t B",
         "int64_t Sq",
         "int64_t Sk",
@@ -211,22 +220,22 @@
   },
   "generated_sources": {
     "bfloat16": {
-      "bytes": 20906,
-      "compiler_copy_sha256": "e4b40e2a053ade21f6559ce56c411fbfb3e34c65cf76223e28c47fbd66da5aa3",
+      "bytes": 20934,
+      "compiler_copy_sha256": "85a99bd0d8f98c9639955e7bc46151d1d5d406ebccb7898a66d3d24cf97626ff",
       "path": "generated/kernel/fa_bwd_bf16.cpp",
-      "sha256": "e4b40e2a053ade21f6559ce56c411fbfb3e34c65cf76223e28c47fbd66da5aa3"
+      "sha256": "85a99bd0d8f98c9639955e7bc46151d1d5d406ebccb7898a66d3d24cf97626ff"
     },
     "float16": {
-      "bytes": 19307,
-      "compiler_copy_sha256": "4261ff994e927602ea0673fc6d181569a8efdf10e898735d2d04ed0bba387112",
+      "bytes": 19335,
+      "compiler_copy_sha256": "7af413043df3e806c464b079dfbee0d0eb3ad5feb53b4d2d7ce42ea27b480f1a",
       "path": "generated/kernel/fa_bwd_fp16.cpp",
-      "sha256": "4261ff994e927602ea0673fc6d181569a8efdf10e898735d2d04ed0bba387112"
+      "sha256": "7af413043df3e806c464b079dfbee0d0eb3ad5feb53b4d2d7ce42ea27b480f1a"
     },
     "float32": {
-      "bytes": 18716,
-      "compiler_copy_sha256": "e180007ce9cebad9d9800a2b7f5c63dfb10fe0210e992819cb16053d525f399c",
+      "bytes": 18744,
+      "compiler_copy_sha256": "b07754fc297b0a49ab0db74006ed199c8f07f289a8045fc5d663e25fe6492f3e",
       "path": "generated/kernel/fa_bwd_fp32.cpp",
-      "sha256": "e180007ce9cebad9d9800a2b7f5c63dfb10fe0210e992819cb16053d525f399c"
+      "sha256": "b07754fc297b0a49ab0db74006ed199c8f07f289a8045fc5d663e25fe6492f3e"
     }
   },
   "host_dispatcher": {
@@ -237,9 +246,9 @@
       "-O2",
       "-fPIC",
       "--shared",
-      "-I/work/evidence/real_fa_bwd_symbolic_20260902T0620Z/generated/host",
-      "/work/evidence/real_fa_bwd_symbolic_20260902T0620Z/generated/host/fa_bwd_dispatch.cpp",
-      "-L/work/evidence/real_fa_bwd_symbolic_20260902T0620Z/generated/kernel",
+      "-I/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/host",
+      "/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/host/fa_bwd_dispatch.cpp",
+      "-L/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel",
       "-Wl,--no-as-needed",
       "-l:fa_bwd_fp16.so",
       "-l:fa_bwd_bf16.so",
@@ -247,7 +256,7 @@
       "-Wl,-z,defs",
       "-Wl,-rpath,$ORIGIN/kernel",
       "-o",
-      "/work/evidence/real_fa_bwd_symbolic_20260902T0620Z/generated/libtilelang_fa_bwd_dispatch.so"
+      "/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/libtilelang_fa_bwd_dispatch.so"
     ],
     "path": "generated/libtilelang_fa_bwd_dispatch.so",
     "rtld_now": "PASS_NO_WRAPPER_CALL",
@@ -269,9 +278,9 @@
       "--repo",
       "/work/repo",
       "--cases",
-      "/work/op29_fa_bwd_fixed50_shapes.csv",
+      "/work/repo/poc/inputs/op29_fa_bwd_fixed50_shapes.csv",
       "--output",
-      "/work/evidence/real_fa_bwd_symbolic_20260902T0620Z/planner_controls"
+      "/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/planner_controls"
     ],
     "returncode": 0
   },
@@ -352,21 +361,55 @@
     ],
     "variant_key": "dtype"
   },
+  "symbol_isolation": {
+    "generic_main_kernel_binding_absent": true,
+    "loader_returncode": 0,
+    "variants": {
+      "bfloat16": {
+        "dynamic_symbol_defined": true,
+        "generic_main_kernel_absent": true,
+        "host_entry": "call_fa_bwd_bf16",
+        "kernel_symbol": "fa_bwd_bf16_kernel",
+        "ld_debug_self_binding": "44132:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_bf16.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_bf16.so [0]: normal symbol `fa_bwd_bf16_kernel'",
+        "library": "generated/kernel/fa_bwd_bf16.so",
+        "self_symbol_relocation_present": true
+      },
+      "float16": {
+        "dynamic_symbol_defined": true,
+        "generic_main_kernel_absent": true,
+        "host_entry": "call_fa_bwd_fp16",
+        "kernel_symbol": "fa_bwd_fp16_kernel",
+        "ld_debug_self_binding": "44132:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_fp16.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_fp16.so [0]: normal symbol `fa_bwd_fp16_kernel'",
+        "library": "generated/kernel/fa_bwd_fp16.so",
+        "self_symbol_relocation_present": true
+      },
+      "float32": {
+        "dynamic_symbol_defined": true,
+        "generic_main_kernel_absent": true,
+        "host_entry": "call_fa_bwd_fp32",
+        "kernel_symbol": "fa_bwd_fp32_kernel",
+        "ld_debug_self_binding": "44132:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_fp32.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_fp32.so [0]: normal symbol `fa_bwd_fp32_kernel'",
+        "library": "generated/kernel/fa_bwd_fp32.so",
+        "self_symbol_relocation_present": true
+      }
+    },
+    "verdict": "PASS_UNIQUE_SELF_BINDINGS"
+  },
   "variant_libraries": {
     "bfloat16": {
-      "bytes": 580544,
+      "bytes": 581448,
       "path": "generated/kernel/fa_bwd_bf16.so",
-      "sha256": "b4d66e1d52b62ff3a43a28dfd67344d69e39e70886fb102e0bf188c1deab93d5"
+      "sha256": "6d93de186fcc9fd5dee2ed90a3f8029d3e8af540cff557fd49f4791d7adfbd49"
     },
     "float16": {
-      "bytes": 576488,
+      "bytes": 577408,
       "path": "generated/kernel/fa_bwd_fp16.so",
-      "sha256": "99ef12ac4e384fd1b95a93dabb404d411e5deb12f2441f81b0e650274a9c2f2b"
+      "sha256": "a10e2e91758466ba08c026900fd437e14b677149e48486f051d6a7aa18678509"
     },
     "float32": {
-      "bytes": 574504,
+      "bytes": 575432,
       "path": "generated/kernel/fa_bwd_fp32.so",
-      "sha256": "f91cf3206ef438d402bda8e18e547383558b1f2536c2b1c48bedd41971f2b419"
+      "sha256": "04edbe0711535fcae85ca6d51ab6cca69c91e7d18a5985ec6b70a91ab5d2ec83"
     }
   }
 }

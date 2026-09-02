@@ -17,7 +17,7 @@ VEC_NUM = 2
 TASKS = CORE_NUM * VEC_NUM
 
 
-def make_fa_bwd_scalar(dtype: str, host_entry: str):
+def make_fa_bwd_scalar(dtype: str, host_entry: str, kernel_entry: str):
     """Return a symbolic, numerical FlashAttention backward PrimFunc."""
 
     B = T.symbolic("B")
@@ -326,4 +326,6 @@ def make_fa_bwd_scalar(dtype: str, host_entry: str):
                             T.tile.cast(cast_out, exp_in, "CAST_RINT", 32)
                             dv[b_i, sk_i, hk_i, d_i] = cast_out[0]
 
-    return main.with_attr("ascendc_host_entry", host_entry)
+    return main.with_attr("ascendc_host_entry", host_entry).with_attr(
+        "ascendc_kernel_entry", kernel_entry
+    )

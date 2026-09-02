@@ -1271,7 +1271,15 @@ void CodeGenTileLangAscend::AddFunction(const GlobalVar &gvar,
 
   this->PrintFuncPrefix(stream);
   CodeGenC::PrintType(f->ret_type, stream);
-  auto func_name = static_cast<std::string>(global_symbol.value()) + "_kernel";
+  // Keep the historical global-symbol-derived device entry by default.  A
+  // compiler-owned multi-DSO bundle may override it so that independently
+  // linked variants cannot interpose one another's device launch relocation.
+  std::string func_name =
+      static_cast<std::string>(global_symbol.value()) + "_kernel";
+  if (auto attr = f->GetAttr<String>("ascendc_kernel_entry"); attr.defined()) {
+    func_name = static_cast<std::string>(attr.value());
+  }
+  ICHECK(!func_name.empty()) << "ascendc_kernel_entry must not be empty";
   this->stream << " " << func_name << "(";
 
   std::vector<const tir::VarNode *> shape_vars;

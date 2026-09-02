@@ -497,5 +497,29 @@ def test_a5_ascendc_symbolic_variant_can_use_private_host_entry():
     assert 'extern "C" void call(' not in code
 
 
+def test_a5_ascendc_symbolic_variant_can_use_unique_device_entry():
+    """Each dtype DSO must launch its own device symbol, never ``main_kernel``.
+
+    A common global ``main_kernel`` is ELF-preemptible: when three generated
+    DSOs are loaded by one dispatcher, later wrappers can bind to the first
+    DSO's device entry.  The kernel-entry attribute is therefore a compiler
+    contract, not a dispatcher workaround.
+    """
+    prim_func = (
+        _multi_var_composite_shape()
+        .with_attr("ascendc_host_entry", "call_fa_bwd_fp16")
+        .with_attr("ascendc_kernel_entry", "fa_bwd_fp16_kernel")
+    )
+    code = _compile_symbolic_and_get_source(
+        prim_func,
+        target="ascendc",
+        platform="A5",
+    )
+    assert 'extern "C" __global__ __aicore__ void fa_bwd_fp16_kernel(' in code
+    assert "fa_bwd_fp16_kernel<<<" in code
+    assert " main_kernel(" not in code
+    assert " main_kernel<<<" not in code
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -37,10 +37,13 @@ def write_json(path: Path, value: object) -> None:
     )
 
 
-def validate_real_source(source: str, host_entry: str, dtype: str) -> dict[str, object]:
+def validate_real_source(
+    source: str, host_entry: str, kernel_entry: str, dtype: str
+) -> dict[str, object]:
     required = [
         f'extern "C" void {host_entry}',
-        'extern "C" __global__ __aicore__ void main_kernel',
+        f'extern "C" __global__ __aicore__ void {kernel_entry}',
+        f"{kernel_entry}<<<",
         "int64_t B",
         "int64_t Sq",
         "int64_t Sk",
@@ -69,6 +72,15 @@ def validate_real_source(source: str, host_entry: str, dtype: str) -> dict[str, 
         raise AssertionError(
             f"{dtype}: generated source contains ABI sentinel tokens: {present_forbidden}"
         )
+    generic_device_entry_tokens = [" void main_kernel(", " main_kernel<<<"]
+    present_generic_device_entries = [
+        token for token in generic_device_entry_tokens if token in source
+    ]
+    if present_generic_device_entries:
+        raise AssertionError(
+            f"{dtype}: generated source retained preemptible generic device entry: "
+            f"{present_generic_device_entries}"
+        )
     if source.count("scratch.SetValue(0, 0.000000e+00f)") != 3:
         raise AssertionError(
             f"{dtype}: output accumulators are not reset for all three outputs"
@@ -88,13 +100,15 @@ def validate_real_source(source: str, host_entry: str, dtype: str) -> dict[str, 
             f"int64_t {name}" in source for name in ascendc_dispatch.SYMBOLIC_EXTENTS
         ),
         "forbidden_tokens_absent": forbidden,
+        "generic_device_entry_absent": True,
+        "kernel_entry": kernel_entry,
         "per_output_accumulator_resets": 3,
         "lifted_scalar_accumulators_absent": True,
     }
 
 
-def lower_variant(dtype: str, host_entry: str):
-    function = make_fa_bwd_scalar(dtype, host_entry)
+def lower_variant(dtype: str, host_entry: str, kernel_entry: str):
+    function = make_fa_bwd_scalar(dtype, host_entry, kernel_entry)
     with tvm.transform.PassContext(config={"tl.disable_safe_memory_legalize": True}):
         return tilelang.lower(function, target="ascendc", platform="A5")
 
@@ -151,6 +165,114 @@ def link_dispatcher(
     # Load-only is a host ABI closure check. No wrapper is called and no NPU is used.
     ctypes.CDLL(str(output), mode=os.RTLD_NOW)
     return command, output
+
+
+def audit_symbol_isolation(
+    output_root: Path, plan, variant_paths: list[Path], host_library: Path
+) -> dict[str, object]:
+    """Prove each host wrapper's relocation binds to its own device entry."""
+
+    audit_dir = output_root / "symbol_audit"
+    audit_dir.mkdir(parents=True, exist_ok=False)
+    variants = {}
+    for variant, library in zip(plan.variants, variant_paths, strict=True):
+        suffix = ascendc_dispatch.DTYPE_SUFFIXES[variant.dtype]
+        tool_outputs = {}
+        for tool_name, command in {
+            "nm_dynamic_defined": ["nm", "-D", "--defined-only", str(library)],
+            "readelf_symbols": ["readelf", "-Ws", str(library)],
+            "readelf_relocations": ["readelf", "-rW", str(library)],
+        }.items():
+            completed = subprocess.run(
+                command, capture_output=True, text=True, check=False
+            )
+            (audit_dir / f"{suffix}.{tool_name}.stdout").write_text(
+                completed.stdout, encoding="utf-8"
+            )
+            (audit_dir / f"{suffix}.{tool_name}.stderr").write_text(
+                completed.stderr, encoding="utf-8"
+            )
+            if completed.returncode != 0:
+                raise RuntimeError(
+                    f"{variant.dtype}: {tool_name} failed rc={completed.returncode}"
+                )
+            tool_outputs[tool_name] = completed.stdout
+
+        nm_symbols = {
+            line.split()[-1]
+            for line in tool_outputs["nm_dynamic_defined"].splitlines()
+            if line.split()
+        }
+        if variant.kernel_symbol not in nm_symbols:
+            raise AssertionError(
+                f"{variant.dtype}: {variant.kernel_symbol} absent from dynamic symbols"
+            )
+        if "main_kernel" in nm_symbols:
+            raise AssertionError(
+                f"{variant.dtype}: preemptible generic main_kernel still exported"
+            )
+        if variant.kernel_symbol not in tool_outputs["readelf_symbols"]:
+            raise AssertionError(
+                f"{variant.dtype}: readelf does not define {variant.kernel_symbol}"
+            )
+        if variant.kernel_symbol not in tool_outputs["readelf_relocations"]:
+            raise AssertionError(
+                f"{variant.dtype}: wrapper relocation does not reference {variant.kernel_symbol}"
+            )
+        variants[variant.dtype] = {
+            "library": str(library.relative_to(output_root)),
+            "kernel_symbol": variant.kernel_symbol,
+            "host_entry": variant.host_entry,
+            "dynamic_symbol_defined": True,
+            "generic_main_kernel_absent": True,
+            "self_symbol_relocation_present": True,
+        }
+
+    loader_script = (
+        f"import ctypes, os; ctypes.CDLL({str(host_library)!r}, mode=os.RTLD_NOW)"
+    )
+    loader_env = os.environ.copy()
+    loader_env["LD_DEBUG"] = "bindings,libs"
+    loader = subprocess.run(
+        [sys.executable, "-c", loader_script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=loader_env,
+    )
+    (audit_dir / "loader.stdout").write_text(loader.stdout, encoding="utf-8")
+    (audit_dir / "loader.stderr").write_text(loader.stderr, encoding="utf-8")
+    (audit_dir / "loader.rc").write_text(f"{loader.returncode}\n", encoding="utf-8")
+    if loader.returncode != 0:
+        raise RuntimeError(f"LD_DEBUG dispatcher load failed rc={loader.returncode}")
+    if "normal symbol `main_kernel'" in loader.stderr:
+        raise AssertionError("loader still bound the generic main_kernel symbol")
+
+    binding_lines = []
+    for variant, library in zip(plan.variants, variant_paths, strict=True):
+        matches = [
+            line.strip()
+            for line in loader.stderr.splitlines()
+            if "binding file" in line
+            and line.count(library.name) >= 2
+            and f"normal symbol `{variant.kernel_symbol}'" in line
+        ]
+        if len(matches) != 1:
+            raise AssertionError(
+                f"{variant.dtype}: expected one self-binding for "
+                f"{variant.kernel_symbol}, got {matches}"
+            )
+        binding_lines.extend(matches)
+        variants[variant.dtype]["ld_debug_self_binding"] = matches[0]
+    (audit_dir / "bindings.summary.txt").write_text(
+        "\n".join(binding_lines) + "\n", encoding="utf-8"
+    )
+    return {
+        "verdict": "PASS_UNIQUE_SELF_BINDINGS",
+        "loader_returncode": loader.returncode,
+        "generic_main_kernel_binding_absent": True,
+        "variants": variants,
+    }
 
 
 def run_planner_controls(repo: Path, cases: Path, output: Path) -> dict[str, object]:
@@ -218,7 +340,9 @@ def main() -> int:
     guards = {}
     variant_paths = []
     for variant in plan.variants:
-        artifact = lower_variant(variant.dtype, variant.host_entry)
+        artifact = lower_variant(
+            variant.dtype, variant.host_entry, variant.kernel_symbol
+        )
         source_path = (
             generated
             / "kernel"
@@ -227,7 +351,10 @@ def main() -> int:
         source_path.parent.mkdir(parents=True, exist_ok=True)
         source_path.write_text(artifact.kernel_source, encoding="utf-8")
         guards[variant.dtype] = validate_real_source(
-            artifact.kernel_source, variant.host_entry, variant.dtype
+            artifact.kernel_source,
+            variant.host_entry,
+            variant.kernel_symbol,
+            variant.dtype,
         )
         library_path = source_path.with_suffix(".so")
         command, compiler_source, library_path = compile_variant(
@@ -248,6 +375,9 @@ def main() -> int:
         variant_paths.append(library_path)
 
     host_command, host_library = link_dispatcher(plan, generated, variant_paths)
+    symbol_isolation = audit_symbol_isolation(
+        args.output, plan, variant_paths, host_library
+    )
     planner_controls = run_planner_controls(
         args.repo, args.cases, args.output / "planner_controls"
     )
@@ -291,6 +421,7 @@ def main() -> int:
             "link_command": host_command,
             "rtld_now": "PASS_NO_WRAPPER_CALL",
         },
+        "symbol_isolation": symbol_isolation,
         "planner_controls": planner_controls,
         "device_execution": "NOT_RUN_NO_NPU_ADMISSION",
         "numerical_precision": "NOT_MEASURED",
