@@ -1,8 +1,10 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from tilelang.jit.adapter import ascendc_provenance
 from tilelang.jit.adapter.ascendc_provenance import (
     AscendCProvenanceError,
     sha256,
@@ -76,6 +78,31 @@ def test_source_observation_rejects_nested_mixed_timestamp():
     observation["official"]["observed_at_utc"] = "2026-08-01T00:00:00Z"
     with pytest.raises(AscendCProvenanceError, match="mixed-time"):
         validate_source_observation(observation)
+
+
+def test_git_porcelain_keeps_leading_index_column(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("before\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "base",
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    tracked.write_text("after\n", encoding="utf-8")
+    assert ascendc_provenance._git_lines(tmp_path, "status", "--porcelain=v1") == [
+        " M tracked.txt"
+    ]
 
 
 def test_bundle_provenance_positive_and_stale_head_negative(tmp_path):

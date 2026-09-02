@@ -48,6 +48,12 @@ def _git(repo: Path, *args: str) -> str:
     return _run(["git", *args], cwd=repo).stdout.strip()
 
 
+def _git_lines(repo: Path, *args: str) -> list[str]:
+    """Return porcelain output without erasing its leading status column."""
+
+    return _run(["git", *args], cwd=repo).stdout.splitlines()
+
+
 def _write_json(path: Path, value: object) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
@@ -144,9 +150,9 @@ def _capture_dependency(
         "actual_head": actual_head,
         "patch": str(copied_patch.relative_to(provenance_dir.parent)),
         "patch_sha256": sha256(copied_patch),
-        "status": _git(
+        "status": _git_lines(
             dependency, "status", "--porcelain=v1", "--untracked-files=all"
-        ).splitlines(),
+        ),
         "recursive_submodules": recursive_status,
     }
 
@@ -253,9 +259,7 @@ def capture_build_provenance(
     shutil.copyfile(source_observation_path, copied_observation)
 
     allowed_paths = set(dependency_patches)
-    status = _git(
-        repo, "status", "--porcelain=v1", "--untracked-files=all"
-    ).splitlines()
+    status = _git_lines(repo, "status", "--porcelain=v1", "--untracked-files=all")
     unexpected = []
     for line in status:
         path = line[3:] if len(line) >= 4 else ""
