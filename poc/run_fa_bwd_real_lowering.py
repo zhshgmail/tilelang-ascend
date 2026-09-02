@@ -311,9 +311,26 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--cases", type=Path, required=True)
+    parser.add_argument("--canonical-json", type=Path, required=True)
+    parser.add_argument("--reference-model", type=Path, required=True)
+    parser.add_argument("--operator-source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-observation", type=Path, required=True)
     args = parser.parse_args()
+
+    bound_inputs = {
+        "op29_fixed50_json": args.canonical_json,
+        "op29_reference_model": args.reference_model,
+        "op29_operator_source": args.operator_source,
+        "op29_fixed50_shapes_csv": args.cases,
+    }
+    invalid_inputs = [
+        name
+        for name, path in bound_inputs.items()
+        if not path.is_file() or path.is_symlink() or path.stat().st_size == 0
+    ]
+    if invalid_inputs:
+        raise ValueError(f"canonical provenance inputs are unavailable: {invalid_inputs}")
 
     args.output.mkdir(parents=True, exist_ok=False)
     generated = args.output / "generated"
@@ -388,7 +405,7 @@ def main() -> int:
         bundle_root=args.output,
         source_observation_path=args.source_observation,
         artifact_paths=generated_artifacts,
-        input_paths={"fa_bwd_fixed50_cases.csv": args.cases},
+        input_paths=bound_inputs,
         dependency_patches={
             "3rdparty/tvm": args.repo
             / "poc"
@@ -414,6 +431,10 @@ def main() -> int:
             "path": str(args.cases),
             "sha256": sha256(args.cases),
             "count": len(cases),
+            "canonical_inputs": {
+                name: {"path": str(path), "sha256": sha256(path)}
+                for name, path in sorted(bound_inputs.items())
+            },
         },
         "baseline": {
             "naive_static_kernel_count": plan.naive_static_kernel_count,
