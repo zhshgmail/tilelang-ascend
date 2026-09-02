@@ -388,7 +388,7 @@ def main() -> int:
         bundle_root=args.output,
         source_observation_path=args.source_observation,
         artifact_paths=generated_artifacts,
-        input_paths={"fa_bwd_fixed50_cases.json": args.cases},
+        input_paths={"fa_bwd_fixed50_cases.csv": args.cases},
         dependency_patches={
             "3rdparty/tvm": args.repo
             / "poc"
