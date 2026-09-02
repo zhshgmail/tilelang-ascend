@@ -3,8 +3,9 @@
 """AscendC symbolic-shape variant planning and host-dispatch generation.
 
 This module deliberately has no TVM import so that the shape contract can be
-validated before lowering. The actual kernels are still emitted by TileLang;
-the generated device sources are ABI sentinels, not numerical implementations.
+validated before lowering. Numerical kernels are emitted separately by the
+TileLang lowering pipeline; this module only owns variant planning and the
+single public host dispatcher.
 
 The first supported contract is BSHD FlashAttention backward. Tensor rank is
 fixed while B/Sq/Sk/Hq/Hk/D are runtime extents. Dtype remains a compile-time
@@ -72,17 +73,25 @@ class FABwdCase:
                 f"case {self.case_id}: rank signature {self.rank_signature} does not match {EXPECTED_RANK_SIGNATURE}"
             )
         if self.dtype not in DTYPE_CODES:
-            raise AscendCSymbolicContractError(f"case {self.case_id}: unsupported dtype {self.dtype!r}")
+            raise AscendCSymbolicContractError(
+                f"case {self.case_id}: unsupported dtype {self.dtype!r}"
+            )
         extents = (self.B, self.Sq, self.Sk, self.Hq, self.Hk, self.D)
         if any(value <= 0 for value in extents):
-            raise AscendCSymbolicContractError(f"case {self.case_id}: non-positive runtime extent {extents}")
+            raise AscendCSymbolicContractError(
+                f"case {self.case_id}: non-positive runtime extent {extents}"
+            )
         if self.Hq % self.Hk != 0:
-            raise AscendCSymbolicContractError(f"case {self.case_id}: Hq={self.Hq} is not divisible by Hk={self.Hk}")
+            raise AscendCSymbolicContractError(
+                f"case {self.case_id}: Hq={self.Hq} is not divisible by Hk={self.Hk}"
+            )
         # D is symbolic, while the current A5 vector/Cube contracts still
         # require an 8-element granularity. This is a runtime guard, not a
         # reason to clone the kernel per D value.
         if self.D % 8 != 0:
-            raise AscendCSymbolicContractError(f"case {self.case_id}: D={self.D} violates runtime D%8 guard")
+            raise AscendCSymbolicContractError(
+                f"case {self.case_id}: D={self.D} violates runtime D%8 guard"
+            )
 
 
 @dataclass(frozen=True)
@@ -116,7 +125,7 @@ class AscendCDispatchPlan:
             "naive_static_kernel_count": self.naive_static_kernel_count,
             "a3_factory_kernel_count": self.a3_factory_kernel_count,
             "poc_kernel_count": len(self.variants),
-            "device_source_authority": "ABI_ONLY_NON_NUMERICAL",
+            "device_source_authority": "TILELANG_LOWERING_REQUIRED",
         }
 
 
@@ -170,7 +179,18 @@ def plan_fa_bwd_dispatch(cases: Sequence[FABwdCase]) -> AscendCDispatchPlan:
     )
 
 
-_POINTER_ARGS = ("q", "k", "v", "dy", "attention", "dq", "dk", "dv")
+_POINTER_ARGS = (
+    "q",
+    "k",
+    "v",
+    "dy",
+    "softmax_max",
+    "softmax_sum",
+    "attention",
+    "dq",
+    "dk",
+    "dv",
+)
 _RUNTIME_ARGS = (
     ("int64_t", "B"),
     ("int64_t", "Sq"),
@@ -202,6 +222,47 @@ def _argument_names() -> list[str]:
     return names
 
 
+def _wrapper_argument_declarations() -> list[str]:
+    """Match the exact argument order emitted by AscendC host codegen."""
+
+    declarations = [f"uint8_t* {name}" for name in _POINTER_ARGS]
+    declarations.extend(
+        [
+            "int32_t causal",
+            "int32_t window_left",
+            "int32_t window_right",
+            "float softcap",
+            "float scale",
+            "int64_t B",
+            "int64_t Sq",
+            "int64_t Hq",
+            "int64_t D",
+            "int64_t Sk",
+            "int64_t Hk",
+            "aclrtStream stream",
+        ]
+    )
+    return declarations
+
+
+def _wrapper_argument_names() -> list[str]:
+    return [
+        *_POINTER_ARGS,
+        "causal",
+        "window_left",
+        "window_right",
+        "softcap",
+        "scale",
+        "B",
+        "Sq",
+        "Hq",
+        "D",
+        "Sk",
+        "Hk",
+        "stream",
+    ]
+
+
 def render_dispatch_header(plan: AscendCDispatchPlan) -> str:
     del plan
     signature = ",\n    ".join(_argument_declarations(include_dtype=True))
@@ -216,10 +277,16 @@ extern "C" int tilelang_fa_bwd_call(
 
 
 def render_dispatch_source(plan: AscendCDispatchPlan) -> str:
-    wrapper_signature = ", ".join(_argument_declarations(include_dtype=False))
-    declarations = "\n".join(f'extern "C" void {variant.host_entry}({wrapper_signature});' for variant in plan.variants)
-    call_args = ", ".join(_argument_names())
-    cases = "\n".join(f"    case {variant.dispatch_key}: {variant.host_entry}({call_args}); return 0;" for variant in plan.variants)
+    wrapper_signature = ", ".join(_wrapper_argument_declarations())
+    declarations = "\n".join(
+        f'extern "C" void {variant.host_entry}({wrapper_signature});'
+        for variant in plan.variants
+    )
+    call_args = ", ".join(_wrapper_argument_names())
+    cases = "\n".join(
+        f"    case {variant.dispatch_key}: {variant.host_entry}({call_args}); return 0;"
+        for variant in plan.variants
+    )
     return f"""#include "fa_bwd_dispatch.hpp"
 
 {declarations}
@@ -236,24 +303,6 @@ extern "C" int tilelang_fa_bwd_call(
 """
 
 
-def render_device_abi_source(variant: AscendCVariant) -> str:
-    # This source is intentionally an ABI sentinel. Numerical FA backward
-    # bodies must come from TileLang lowering before a product claim is valid.
-    return f"""#include "kernel_operator.h"
-
-extern "C" __global__ __aicore__ void {variant.kernel_symbol}(
-    GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR dy, GM_ADDR attention,
-    GM_ADDR dq, GM_ADDR dk, GM_ADDR dv,
-    int64_t B, int64_t Sq, int64_t Sk, int64_t Hq, int64_t Hk, int64_t D,
-    int32_t causal, int32_t window_left, int32_t window_right,
-    float softcap, float scale, uint64_t fftsAddr) {{
-  // ABI-only discriminator: all extents are runtime scalars. This kernel is
-  // deliberately non-numerical and must fail any precision known-bad gate.
-  if (B <= 0 || Sq <= 0 || Sk <= 0 || Hq <= 0 || Hk <= 0 || D <= 0) return;
-}}
-"""
-
-
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -261,16 +310,13 @@ def _write_text(path: Path, text: str) -> None:
     temporary.replace(path)
 
 
-def write_dispatch_bundle(cases: Sequence[FABwdCase], output_dir: str | os.PathLike[str]) -> AscendCDispatchPlan:
+def write_dispatch_bundle(
+    cases: Sequence[FABwdCase], output_dir: str | os.PathLike[str]
+) -> AscendCDispatchPlan:
     plan = plan_fa_bwd_dispatch(cases)
     output = Path(output_dir)
     _write_text(output / "host" / "fa_bwd_dispatch.hpp", render_dispatch_header(plan))
     _write_text(output / "host" / "fa_bwd_dispatch.cpp", render_dispatch_source(plan))
-    for variant in plan.variants:
-        _write_text(
-            output / "kernel" / f"{variant.kernel_symbol}.cpp",
-            render_device_abi_source(variant),
-        )
     _write_text(
         output / "variant_plan.json",
         json.dumps(plan.to_json_dict(), indent=2, sort_keys=True) + "\n",

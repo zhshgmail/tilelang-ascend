@@ -107,3 +107,5 @@ docs/notebook/*.cpp
 # gemm_aot AOT build output
 examples/gemm_aot/kernel_lib.so
 
+# Isolated compiler-PoC build receipts and generated binaries live outside Git.
+/evidence/

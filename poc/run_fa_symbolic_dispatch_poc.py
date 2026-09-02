@@ -33,7 +33,7 @@ def load_backend(repo: Path):
 
 
 def wrapper_definition(module, variant) -> str:
-    signature = ", ".join(module._argument_declarations(include_dtype=False))
+    signature = ", ".join(module._wrapper_argument_declarations())
     return f'extern "C" void {variant.host_entry}({signature}) {{ g_last_key = {variant.dispatch_key}; }}\n'
 
 
@@ -69,7 +69,7 @@ int main() {{
   for (const auto& c : cases) {{
     g_last_key = -1;
     int rc = tilelang_fa_bwd_call(
-        &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
+        &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
         c.B, c.Sq, c.Sk, c.Hq, c.Hk, c.D,
         c.causal, c.wl, c.wr, c.softcap, 1.0f, c.dtype, nullptr);
     if (rc != 0 || g_last_key != c.dtype) {{
@@ -79,11 +79,11 @@ int main() {{
     }}
   }}
   int bad_d = tilelang_fa_bwd_call(
-      &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
+      &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
       1, 3, 5, 2, 1, 17, 0, -1, 0, 0.0f, 1.0f, 0, nullptr);
   if (bad_d != -3) return 11;
   int bad_dtype = tilelang_fa_bwd_call(
-      &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
+      &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
       1, 3, 5, 2, 1, 16, 0, -1, 0, 0.0f, 1.0f, 99, nullptr);
   if (bad_dtype != -4) return 12;
   std::cout << "dispatch_cases=" << (sizeof(cases) / sizeof(cases[0]))
@@ -108,7 +108,9 @@ def main() -> int:
     assert plan.naive_static_kernel_count == 50
     assert plan.a3_factory_kernel_count == 37
     assert len(plan.variants) == 3
-    assert sorted(case_id for v in plan.variants for case_id in v.case_ids) == list(range(50))
+    assert sorted(case_id for v in plan.variants for case_id in v.case_ids) == list(
+        range(50)
+    )
 
     negative = dataclasses.replace(cases[0], rank_signature=(3, 4, 4, 4, 4, 4, 4))
     try:
@@ -123,7 +125,8 @@ def main() -> int:
     mock = host_test / "mock_wrappers.cpp"
     mock.write_text(
         '#include "../generated/host/fa_bwd_dispatch.hpp"\n'
-        "int g_last_key = -1;\n" + "".join(wrapper_definition(module, variant) for variant in plan.variants),
+        "int g_last_key = -1;\n"
+        + "".join(wrapper_definition(module, variant) for variant in plan.variants),
         encoding="utf-8",
     )
     driver = host_test / "driver.cpp"
@@ -152,7 +155,9 @@ def main() -> int:
     (host_test / "compile.stderr").write_text(compile_run.stderr, encoding="utf-8")
     if compile_run.returncode != 0:
         raise RuntimeError(f"host compile failed: rc={compile_run.returncode}")
-    dispatch_run = subprocess.run([str(executable)], capture_output=True, text=True, check=False)
+    dispatch_run = subprocess.run(
+        [str(executable)], capture_output=True, text=True, check=False
+    )
     (host_test / "run.stdout").write_text(dispatch_run.stdout, encoding="utf-8")
     (host_test / "run.stderr").write_text(dispatch_run.stderr, encoding="utf-8")
     if dispatch_run.returncode != 0:
@@ -170,19 +175,23 @@ def main() -> int:
         "a3_factory_kernel_count": plan.a3_factory_kernel_count,
         "poc_host_count": 1,
         "poc_kernel_count": len(plan.variants),
-        "covered_case_ids": sorted(case_id for variant in plan.variants for case_id in variant.case_ids),
+        "covered_case_ids": sorted(
+            case_id for variant in plan.variants for case_id in variant.case_ids
+        ),
         "unsupported_case_ids": [],
         "rank_change_known_bad": rank_negative,
         "runtime_guard_negative_controls": 2,
         "host_compile_rc": compile_run.returncode,
         "host_dispatch_rc": dispatch_run.returncode,
         "host_dispatch_stdout": dispatch_run.stdout.strip(),
-        "a5_device_compile": "NOT_RUN_TOOLCHAIN_MISSING",
-        "numerical_precision": "NOT_IMPLEMENTED_NOT_MEASURED",
+        "a5_device_compile": "SEPARATE_REAL_LOWERING_REQUIRED",
+        "numerical_precision": "NOT_RUN_NO_NPU",
         "npu_used": False,
     }
     result_path = args.output / "poc_result.json"
-    result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    result_path.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
