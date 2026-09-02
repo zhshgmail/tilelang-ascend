@@ -1,0 +1,162 @@
+{
+  "artifacts": [
+    {
+      "bytes": 2245,
+      "path": "generated/host/fa_bwd_dispatch.cpp",
+      "sha256": "bd97a78b7f19ce01228eb620c97c29521efc675345a21999398d4b3570509066"
+    },
+    {
+      "bytes": 540,
+      "path": "generated/host/fa_bwd_dispatch.hpp",
+      "sha256": "485db41d892487724755d298086cea5510e55f94b6dad6aad8256348b31799c1"
+    },
+    {
+      "bytes": 0,
+      "path": "generated/host_link.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 0,
+      "path": "generated/host_link.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 20934,
+      "path": "generated/kernel/fa_bwd_bf16.compiler.cpp",
+      "sha256": "85a99bd0d8f98c9639955e7bc46151d1d5d406ebccb7898a66d3d24cf97626ff"
+    },
+    {
+      "bytes": 20934,
+      "path": "generated/kernel/fa_bwd_bf16.cpp",
+      "sha256": "85a99bd0d8f98c9639955e7bc46151d1d5d406ebccb7898a66d3d24cf97626ff"
+    },
+    {
+      "bytes": 581448,
+      "path": "generated/kernel/fa_bwd_bf16.so",
+      "sha256": "bf13c97d9b44fbcd6558350033079d8e1d4a2d568c3183b3cbebb9f93850a7c0"
+    },
+    {
+      "bytes": 19335,
+      "path": "generated/kernel/fa_bwd_fp16.compiler.cpp",
+      "sha256": "7af413043df3e806c464b079dfbee0d0eb3ad5feb53b4d2d7ce42ea27b480f1a"
+    },
+    {
+      "bytes": 19335,
+      "path": "generated/kernel/fa_bwd_fp16.cpp",
+      "sha256": "7af413043df3e806c464b079dfbee0d0eb3ad5feb53b4d2d7ce42ea27b480f1a"
+    },
+    {
+      "bytes": 577408,
+      "path": "generated/kernel/fa_bwd_fp16.so",
+      "sha256": "a36dd9071ea4d0d809b5517f8b7658f120298906f059e299cad85a417916daec"
+    },
+    {
+      "bytes": 18744,
+      "path": "generated/kernel/fa_bwd_fp32.compiler.cpp",
+      "sha256": "b07754fc297b0a49ab0db74006ed199c8f07f289a8045fc5d663e25fe6492f3e"
+    },
+    {
+      "bytes": 18744,
+      "path": "generated/kernel/fa_bwd_fp32.cpp",
+      "sha256": "b07754fc297b0a49ab0db74006ed199c8f07f289a8045fc5d663e25fe6492f3e"
+    },
+    {
+      "bytes": 575432,
+      "path": "generated/kernel/fa_bwd_fp32.so",
+      "sha256": "70aba7215aacbf8c4f35d1c835b0d133d8779b04a1749fbbd35cbdccf23adc48"
+    },
+    {
+      "bytes": 15400,
+      "path": "generated/libtilelang_fa_bwd_dispatch.so",
+      "sha256": "c64c5b822b0b5f51c301b56adcef1aec2466fb46f80dfc9e320bba0cfb918ec9"
+    },
+    {
+      "bytes": 1559,
+      "path": "generated/variant_plan.json",
+      "sha256": "852abda7e79574b05fb46e21eaf9bcaf3968768c086ffa4df196ab5eea146ee1"
+    }
+  ],
+  "authority": "AUTHOR_BUILD_PROVENANCE_ONLY",
+  "dependencies": [
+    {
+      "actual_head": "c2921fdaf795b1103d21abc962e83a209c7258d7",
+      "gitlink": "c2921fdaf795b1103d21abc962e83a209c7258d7",
+      "patch": "provenance/tvm_dynamic_slice_unit_step.patch",
+      "patch_sha256": "99a307ad3fa0ea648f26ad15a84c38588241de96cd11740c8f4210e7d81931a8",
+      "path": "3rdparty/tvm",
+      "recursive_submodules": [
+        " b590a6bfe034ea3a418b7b523e3490956bcb367a 3rdparty/OpenCL-Headers (b590a6b)",
+        " 4e8810b1a8637695171ed346ce68f6984e585ef4 3rdparty/cnpy (heads/master)",
+        " a285d6f9b5c8ada9f306fae9724d6788060e7e2a 3rdparty/composable_kernel (a285d6f)",
+        " ff61a49dd1a728a96e9a8434ed408a2a52d73119 3rdparty/cutlass (ff61a49)",
+        " 12e0cc70d7e5c6baeb5fa7e41406e4a08e32e1e6 3rdparty/cutlass_fpA_intB_gemm (12e0cc7)",
+        " cc85b64cf676c45f98a17e3a47c0aafcf817f088 3rdparty/cutlass_fpA_intB_gemm/cutlass (cc85b64)",
+        " e2bdd3bee8cb6501558042633fa59144cc8b7f5f 3rdparty/dlpack (e2bdd3b)",
+        " 09511cf9fe5ff103900a5eafb50870dc84cc17c8 3rdparty/dmlc-core (09511cf)",
+        " 9cd1f42e968a8de7d3af2c7567072e0ad6c8ffed 3rdparty/flashinfer (9cd1f42)",
+        " 40412d85124f7c6f3d88454583c4633e5e10fc8c 3rdparty/flashinfer/3rdparty/googletest (40412d8)",
+        " f57aa9c993f4392a76650bc54513f571cd1128c9 3rdparty/flashinfer/3rdparty/nvbench (f57aa9c)",
+        " 08f7c7e69f8ea61a0c4151359bc8023be8e9217b 3rdparty/libbacktrace (heads/master)",
+        " 55d3603f741eb68e82640ff55ccea4b17dd8053e 3rdparty/libflash_attn (55d3603)",
+        " e0aaa3c3b38db9a89c31f04fef91e92123ad5e2e 3rdparty/libflash_attn/cutlass (e0aaa3c)",
+        " cabe04d6d6b05356fa8f9741704924788f0dd762 3rdparty/rang (cabe04d)",
+        " 36a91576edf633479c78649e050f18dd2ddc8103 3rdparty/vta-hw (36a9157)"
+      ],
+      "status": [
+        " M python/tvm/tir/buffer.py"
+      ]
+    }
+  ],
+  "device_execution": "NOT_RUN_NO_NPU_ADMISSION",
+  "inputs": [
+    {
+      "bytes": 3010,
+      "name": "fa_bwd_fixed50_cases.csv",
+      "path": "provenance/inputs/fa_bwd_fixed50_cases.csv",
+      "sha256": "6cb3fef12299b661ec01923e5216f135aa5be0fbe97abb5aad60f21684efd889"
+    }
+  ],
+  "loaded_compiler": {
+    "libtilelang_module.so": {
+      "bytes": 8216528,
+      "path": "/work/provenance_repo_fd1be6e5/build/libtilelang_module.so",
+      "sha256": "d05fa79cd5110c03bb399e288e17dfaf3a5b3b1225d06b7204fe8caac3274a2b"
+    },
+    "libtvm.so": {
+      "bytes": 80961088,
+      "path": "/work/provenance_repo_fd1be6e5/build/tvm/libtvm.so",
+      "sha256": "d8d84f3c63d40462d99a9199b85d8a1ce587da328800d281962585b7e17cfeec"
+    }
+  },
+  "schema_version": 1,
+  "source_observation": {
+    "colleague_a3_head": "b0dcbf42fbc4ce7e28d594b50b3dba8a7b29e093",
+    "observed_at_utc": "2026-09-02T17:06:28Z",
+    "official_head": "01e7254dc51685fd77f41e5807c42e6537e17645",
+    "path": "provenance/SOURCE_OBSERVATION.json",
+    "sha256": "330fbcb57947154dd6382ebeed7ebe0a5ef3ee78353e4e6be0f6b634764896ef"
+  },
+  "source_repo": {
+    "branch": "DETACHED",
+    "commit": "43a44017deec4698c30631ec125ab044294b8332",
+    "origin": "https://github.com/tile-ai/tilelang-ascend.git",
+    "path_diagnostic_only": "/work/provenance_repo_fd1be6e5",
+    "status": [
+      " M 3rdparty/tvm"
+    ],
+    "tree": "372f2550fe1ba3a760763c6adbca30cefb76d67a"
+  },
+  "target": {
+    "backend": "ascendc",
+    "catlass_arch": "3510",
+    "npu_arch": "dav-3510",
+    "platform": "A5"
+  },
+  "toolchain": {
+    "bytes": 151547072,
+    "path": "/data/pri/Ascend/9.1.0.B150/cann-9.1.0/tools/bisheng_compiler/bin/bisheng",
+    "sha256": "8120f5d1fd5cc2df8499f2aa1b301ec7a8126d66bd23226c721de378872a918d",
+    "version": "2026-08-26 09:08:02 +0000 Baize clang version 15.0.5 (clang-54f07e84a6f7 flang-54f07e84a6f7)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /data/pri/Ascend/9.1.0.B150/cann-9.1.0/tools/bisheng_compiler/bin",
+    "version_sha256": "4a2ef66d1df182dea749b65f709026b5d37ad9401f97d123dd5041ce0cc1aacc"
+  }
+}
