@@ -1,6 +1,6 @@
 # AUTHOR_BUILD receipt: FA backward AscendC symbol isolation
 
-- observed_at: `2026-09-02T07:25:00Z`
+- observed_at: `2026-09-02T07:45:00Z`
 - authority: `AUTHOR_BUILD_EVIDENCE_ONLY`
 - rejected ancestor: `a5754b8b941a0df3b1aaa5ee30bdddae0ac3bbe6`
 - build container: `root@141.61.33.141:zheng-codex02-tilelang-fa-symbolic-buildonly-20260902t0510z`
@@ -49,9 +49,9 @@ All three variants rebuilt with Bisheng B150 using
 
 | dtype | ELF SHA256 | unique symbol | generic `main_kernel` | wrapper relocation | loader binding |
 |---|---|---|---|---|---|
-| FP16 | `a10e2e91758466ba08c026900fd437e14b677149e48486f051d6a7aa18678509` | GLOBAL DEFAULT | absent | `R_X86_64_GLOB_DAT fa_bwd_fp16_kernel` | FP16 DSO to itself |
-| BF16 | `6d93de186fcc9fd5dee2ed90a3f8029d3e8af540cff557fd49f4791d7adfbd49` | GLOBAL DEFAULT | absent | `R_X86_64_GLOB_DAT fa_bwd_bf16_kernel` | BF16 DSO to itself |
-| FP32 | `04edbe0711535fcae85ca6d51ab6cca69c91e7d18a5985ec6b70a91ab5d2ec83` | GLOBAL DEFAULT | absent | `R_X86_64_GLOB_DAT fa_bwd_fp32_kernel` | FP32 DSO to itself |
+| FP16 | `53d0fe95a23c9253686b9662dbfe9a9df00a7f7f76791fe1f60dae5c008b41c5` | GLOBAL DEFAULT | absent | `R_X86_64_GLOB_DAT fa_bwd_fp16_kernel` | FP16 DSO to itself |
+| BF16 | `e4af6027021798d08096e6dbbdb955b90f1f87870c58f0aaf0fbdf65de32970f` | GLOBAL DEFAULT | absent | `R_X86_64_GLOB_DAT fa_bwd_bf16_kernel` | BF16 DSO to itself |
+| FP32 | `db3b558461a9f95a3e377428c0450c51cd7edaa5917d94f3da1cbf1ebadbe7cf` | GLOBAL DEFAULT | absent | `R_X86_64_GLOB_DAT fa_bwd_fp32_kernel` | FP32 DSO to itself |
 
 Repaired `LD_DEBUG=bindings` returned 0. It contains exactly one self-binding
 for each typed kernel entry and no `normal symbol 'main_kernel'` binding.

@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-- `observed_at`: `2026-09-02T07:25:00Z`
+- `observed_at`: `2026-09-02T07:45:00Z`
 - operator: `29_FlashAttentionBwd`
 - mode: isolated compiler author PoC, card-free only
 - authority: `AUTHOR_EVIDENCE_ONLY`
@@ -133,9 +133,9 @@ Result:
 
 | dtype | generated source SHA256 | A5 ELF SHA256 | build |
 |---|---|---|---|
-| BF16 | `85a99bd0d8f98c9639955e7bc46151d1d5d406ebccb7898a66d3d24cf97626ff` | `6d93de186fcc9fd5dee2ed90a3f8029d3e8af540cff557fd49f4791d7adfbd49` | rc=0 |
-| FP16 | `7af413043df3e806c464b079dfbee0d0eb3ad5feb53b4d2d7ce42ea27b480f1a` | `a10e2e91758466ba08c026900fd437e14b677149e48486f051d6a7aa18678509` | rc=0 |
-| FP32 | `b07754fc297b0a49ab0db74006ed199c8f07f289a8045fc5d663e25fe6492f3e` | `04edbe0711535fcae85ca6d51ab6cca69c91e7d18a5985ec6b70a91ab5d2ec83` | rc=0 |
+| BF16 | `85a99bd0d8f98c9639955e7bc46151d1d5d406ebccb7898a66d3d24cf97626ff` | `e4af6027021798d08096e6dbbdb955b90f1f87870c58f0aaf0fbdf65de32970f` | rc=0 |
+| FP16 | `7af413043df3e806c464b079dfbee0d0eb3ad5feb53b4d2d7ce42ea27b480f1a` | `53d0fe95a23c9253686b9662dbfe9a9df00a7f7f76791fe1f60dae5c008b41c5` | rc=0 |
+| FP32 | `b07754fc297b0a49ab0db74006ed199c8f07f289a8045fc5d663e25fe6492f3e` | `db3b558461a9f95a3e377428c0450c51cd7edaa5917d94f3da1cbf1ebadbe7cf` | rc=0 |
 
 Host dispatcher:
 
@@ -190,7 +190,7 @@ Tests:
 External generated/build evidence (not committed because it contains ELF and
 generated artifacts):
 
-`root@141.61.33.141:/home/zheng/codex02_tilelang_fa_symbolic_build_20260902T0510Z/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/`
+`root@141.61.33.141:/home/zheng/codex02_tilelang_fa_symbolic_build_20260902T0510Z/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/`
 
 The final external `MANIFEST.sha256` binds every generated source, ELF, host
 dispatcher, compiler output, test log, and result receipt.

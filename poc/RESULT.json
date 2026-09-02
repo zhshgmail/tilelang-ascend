@@ -35,10 +35,10 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmpvuwoos4t.cpp",
+      "/tmp/tmpl5_cu_p2.cpp",
       "-O2",
       "-o",
-      "/tmp/tmpvuwoos4t.so"
+      "/tmp/tmpl5_cu_p2.so"
     ],
     "float16": [
       "bisheng",
@@ -70,10 +70,10 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmpp9fshwi4.cpp",
+      "/tmp/tmptfmladdi.cpp",
       "-O2",
       "-o",
-      "/tmp/tmpp9fshwi4.so"
+      "/tmp/tmptfmladdi.so"
     ],
     "float32": [
       "bisheng",
@@ -105,10 +105,10 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmp3q2shqeu.cpp",
+      "/tmp/tmpw3iqnk36.cpp",
       "-O2",
       "-o",
-      "/tmp/tmp3q2shqeu.so"
+      "/tmp/tmpw3iqnk36.so"
     ]
   },
   "case_manifest": {
@@ -246,9 +246,9 @@
       "-O2",
       "-fPIC",
       "--shared",
-      "-I/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/host",
-      "/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/host/fa_bwd_dispatch.cpp",
-      "-L/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel",
+      "-I/work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/host",
+      "/work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/host/fa_bwd_dispatch.cpp",
+      "-L/work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/kernel",
       "-Wl,--no-as-needed",
       "-l:fa_bwd_fp16.so",
       "-l:fa_bwd_bf16.so",
@@ -256,7 +256,7 @@
       "-Wl,-z,defs",
       "-Wl,-rpath,$ORIGIN/kernel",
       "-o",
-      "/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/libtilelang_fa_bwd_dispatch.so"
+      "/work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/libtilelang_fa_bwd_dispatch.so"
     ],
     "path": "generated/libtilelang_fa_bwd_dispatch.so",
     "rtld_now": "PASS_NO_WRAPPER_CALL",
@@ -280,7 +280,7 @@
       "--cases",
       "/work/repo/poc/inputs/op29_fa_bwd_fixed50_shapes.csv",
       "--output",
-      "/work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/planner_controls"
+      "/work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/planner_controls"
     ],
     "returncode": 0
   },
@@ -370,7 +370,7 @@
         "generic_main_kernel_absent": true,
         "host_entry": "call_fa_bwd_bf16",
         "kernel_symbol": "fa_bwd_bf16_kernel",
-        "ld_debug_self_binding": "44132:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_bf16.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_bf16.so [0]: normal symbol `fa_bwd_bf16_kernel'",
+        "ld_debug_self_binding": "51096:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/kernel/fa_bwd_bf16.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/kernel/fa_bwd_bf16.so [0]: normal symbol `fa_bwd_bf16_kernel'",
         "library": "generated/kernel/fa_bwd_bf16.so",
         "self_symbol_relocation_present": true
       },
@@ -379,7 +379,7 @@
         "generic_main_kernel_absent": true,
         "host_entry": "call_fa_bwd_fp16",
         "kernel_symbol": "fa_bwd_fp16_kernel",
-        "ld_debug_self_binding": "44132:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_fp16.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_fp16.so [0]: normal symbol `fa_bwd_fp16_kernel'",
+        "ld_debug_self_binding": "51096:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/kernel/fa_bwd_fp16.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/kernel/fa_bwd_fp16.so [0]: normal symbol `fa_bwd_fp16_kernel'",
         "library": "generated/kernel/fa_bwd_fp16.so",
         "self_symbol_relocation_present": true
       },
@@ -388,7 +388,7 @@
         "generic_main_kernel_absent": true,
         "host_entry": "call_fa_bwd_fp32",
         "kernel_symbol": "fa_bwd_fp32_kernel",
-        "ld_debug_self_binding": "44132:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_fp32.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_20260902T0725Z/generated/kernel/fa_bwd_fp32.so [0]: normal symbol `fa_bwd_fp32_kernel'",
+        "ld_debug_self_binding": "51096:\tbinding file /work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/kernel/fa_bwd_fp32.so [0] to /work/evidence/real_fa_bwd_symbol_isolated_after_862d090e_20260902T0745Z/generated/kernel/fa_bwd_fp32.so [0]: normal symbol `fa_bwd_fp32_kernel'",
         "library": "generated/kernel/fa_bwd_fp32.so",
         "self_symbol_relocation_present": true
       }
@@ -399,17 +399,17 @@
     "bfloat16": {
       "bytes": 581448,
       "path": "generated/kernel/fa_bwd_bf16.so",
-      "sha256": "6d93de186fcc9fd5dee2ed90a3f8029d3e8af540cff557fd49f4791d7adfbd49"
+      "sha256": "e4af6027021798d08096e6dbbdb955b90f1f87870c58f0aaf0fbdf65de32970f"
     },
     "float16": {
       "bytes": 577408,
       "path": "generated/kernel/fa_bwd_fp16.so",
-      "sha256": "a10e2e91758466ba08c026900fd437e14b677149e48486f051d6a7aa18678509"
+      "sha256": "53d0fe95a23c9253686b9662dbfe9a9df00a7f7f76791fe1f60dae5c008b41c5"
     },
     "float32": {
       "bytes": 575432,
       "path": "generated/kernel/fa_bwd_fp32.so",
-      "sha256": "04edbe0711535fcae85ca6d51ab6cca69c91e7d18a5985ec6b70a91ab5d2ec83"
+      "sha256": "db3b558461a9f95a3e377428c0450c51cd7edaa5917d94f3da1cbf1ebadbe7cf"
     }
   }
 }
