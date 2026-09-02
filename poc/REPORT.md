@@ -45,6 +45,15 @@ general symbolic-shape system; it uses the symbolic infrastructure inherited
 from upstream. The A5 PoC therefore reuses the upstream symbolic TIR path and
 adds the missing compiler-owned dtype variant/host-dispatch layer.
 
+One exact build prerequisite is retained explicitly rather than hidden in a
+dirty submodule: `poc/patches/tvm_dynamic_slice_unit_step.patch` applies to TVM
+gitlink `c2921fdaf795b1103d21abc962e83a209c7258d7`. It makes an explicit unit
+slice step use TVM's `BufferRegion` path, avoiding a compile-time `int(lanes)`
+conversion for runtime-dynamic lengths. This patch predates the rejected
+symbol-isolation design and was present in both rejected and repaired builds;
+it is not part of the device-entry fix, but it is part of the exact lowering
+input and therefore must be applied when reproducing the build.
+
 ## Fixed-50 input contract
 
 - original benchmark JSON:

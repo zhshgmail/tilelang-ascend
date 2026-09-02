@@ -6,6 +6,9 @@
 - build container: `root@141.61.33.141:zheng-codex02-tilelang-fa-symbolic-buildonly-20260902t0510z`
 - Docker device bindings: `HostConfig.Devices=[]`, `HostConfig.DeviceRequests=null`
 - target: `A5 AscendC`, `dav-3510`, `CATLASS_ARCH=3510`
+- TVM gitlink: `c2921fdaf795b1103d21abc962e83a209c7258d7`
+- required retained dependency patch:
+  `poc/patches/tvm_dynamic_slice_unit_step.patch`
 - NPU execution: `NOT_RUN_NO_NPU_ADMISSION`
 - numerical precision: `NOT_MEASURED`
 - performance: `NOT_MEASURED`
@@ -71,3 +74,8 @@ host ABI preservation, and ELF binding isolation. It does not prove A5 device
 execution, fixed-50 DQ/DK/DV precision, known-bad discrimination on device,
 or performance. A fresh non-author review must judge the exact repair commit
 and its external evidence before acceptance.
+
+The build container's TVM submodule contains exactly the retained dependency
+patch above. It is deliberately disclosed and content-addressed; it must not be
+mistaken for part of the symbol-isolation repair or silently omitted in a
+clean-room replay.
