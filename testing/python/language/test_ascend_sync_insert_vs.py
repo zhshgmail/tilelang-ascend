@@ -75,6 +75,7 @@ import pytest
 
 import tilelang
 import tilelang.language as T
+from tilelang import tvm
 
 # ---------------------------------------------------------------------------
 # Pass configuration dicts
@@ -203,6 +204,13 @@ def _compile_and_get_source(program, pass_configs, target="ascendc", platform="a
         kwargs["out_idx"] = out_idx
     kernel = tilelang.compile(program, **kwargs)
     return kernel.get_kernel_source(), kernel
+
+
+def _lower_and_get_source(program, pass_configs, target="ascendc", platform="auto"):
+    """Lower to source without constructing the torch/NPU runtime adapter."""
+    with tvm.transform.PassContext(opt_level=3, config=pass_configs):
+        artifact = tilelang.lower(program, target=target, platform=platform)
+    return artifact.kernel_source, artifact
 
 
 def _count_pattern(src, pattern):
@@ -1551,7 +1559,6 @@ def test_if_without_else_propagation(target):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.ci_skip
 def test_a5_pto_skips_v_to_v_sync():
     """A5 V operations are ordered within PIPE_V; no invalid V_V event."""
 
@@ -1568,7 +1575,7 @@ def test_a5_pto_skips_v_to_v_sync():
             T.tile.exp(b_ub, b_ub)
             T.copy(b_ub, B[:, :])
 
-    src, _ = _compile_and_get_source(main, PASS_VS_ONLY, target="pto", platform="A5", out_idx=[1])
+    src, _ = _lower_and_get_source(main, PASS_VS_ONLY, target="pto", platform="A5")
     _assert_no_sync(src, "pto", "v_v")
     _assert_no_sync(src, "pto", "barrier_v")
 
@@ -1735,7 +1742,6 @@ def test_vs_with_memory_planning_off(target):
     _assert_has_sync(src, target, "barrier_v")
 
 
-@pytest.mark.ci_skip
 def test_a5_ascendc_skips_v_to_v_sync():
     """A5 V operations are ordered within PIPE_V; no invalid V_V event."""
 
@@ -1752,7 +1758,7 @@ def test_a5_ascendc_skips_v_to_v_sync():
             T.tile.exp(b_ub, b_ub)
             T.copy(b_ub, B[:, :])
 
-    src, _ = _compile_and_get_source(main, PASS_VS_ONLY, target="ascendc", platform="A5", out_idx=[1])
+    src, _ = _lower_and_get_source(main, PASS_VS_ONLY, target="ascendc", platform="A5")
     _assert_no_sync(src, "ascendc", "v_v")
     _assert_no_sync(src, "ascendc", "barrier_v")
 
