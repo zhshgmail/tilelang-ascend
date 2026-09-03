@@ -70,7 +70,7 @@ CATLASS_DEVICE void hard_event_barrier_compat() {
   // exact producer/consumer event instead.  FetchEventID returns an available
   // ID without reserving it, so an immediate set/wait pair neither collides
   // with caller-owned literal IDs nor exhausts the event pool in a loop.
-  auto event_id = AscendC::GetTPipePtr()->FetchEventID(event);
+  event_t event_id = static_cast<event_t>(GetTPipePtr()->FetchEventID(event));
   AscendC::SetFlag<event>(event_id);
   AscendC::WaitFlag<event>(event_id);
 }
@@ -1107,6 +1107,7 @@ tail_broadcast(LocalTensor<T> dst, LocalTensor<T> src, int axis,
     hard_event_barrier_compat<AscendC::HardEvent::V_S>();
     for (uint32_t r = 0; r < rows; ++r) {
       T scalar = src.GetValue(r * srcRowStride);
+      hard_event_barrier_compat<AscendC::HardEvent::S_V>();
       // Keep both full and tail rows on the vector path.  SetValue is a
       // scalar-pipeline store and is not a sound producer for the following
       // MTE3 copy on device; Duplicate supports an arbitrary element count and
@@ -1114,7 +1115,6 @@ tail_broadcast(LocalTensor<T> dst, LocalTensor<T> src, int axis,
       AscendC::Duplicate(dst[r * dstPhysCol], scalar,
                          static_cast<int32_t>(validCol));
     }
-    hard_event_barrier_compat<AscendC::HardEvent::S_V>();
     return;
   }
   uint32_t cols = validCol < srcValidCol ? validCol : srcValidCol;

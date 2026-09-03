@@ -19,7 +19,11 @@ def test_dav3510_common_header_uses_directional_hard_events() -> None:
     # on entry and S_V on exit.  gemmL1 drains its final FIX producer before M
     # reuses L0C.  FetchEventID avoids colliding with caller-owned literal IDs.
     assert "CATLASS_DEVICE void hard_event_barrier_compat()" in source
-    assert "GetTPipePtr()->FetchEventID(event)" in source
+    assert (
+        "event_t event_id = "
+        "static_cast<event_t>(GetTPipePtr()->FetchEventID(event));"
+    ) in source
+    assert "AscendC::GetTPipePtr" not in source
     assert "AscendC::SetFlag<event>(event_id);" in source
     assert "AscendC::WaitFlag<event>(event_id);" in source
     assert "AscendC::PipeBarrier<PIPE_ALL>();" not in source
@@ -32,3 +36,10 @@ def test_dav3510_common_header_uses_directional_hard_events() -> None:
     assert source.count(
         "hard_event_barrier_compat<AscendC::HardEvent::FIX_M>();"
     ) == 1
+
+    scalar_read = "T scalar = src.GetValue(r * srcRowStride);"
+    scalar_to_vector = "hard_event_barrier_compat<AscendC::HardEvent::S_V>();"
+    duplicate = "AscendC::Duplicate(dst[r * dstPhysCol], scalar,"
+    broadcast = source[source.index("tail_broadcast(") : source.index("// ---- reduce ----")]
+    assert broadcast.index(scalar_read) < broadcast.index(scalar_to_vector)
+    assert broadcast.index(scalar_to_vector) < broadcast.index(duplicate)
