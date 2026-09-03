@@ -56,6 +56,17 @@ CPP_DATA_TYPES = {
     "bfloat16": "bfloat16_t",
     "float32": "float",
 }
+FA_BWD_PASS_CONFIGS = {
+    "tl.disable_safe_memory_legalize": True,
+    "tl.ascend_auto_sync": True,
+    "tl.ascend_auto_sync_vs": True,
+    "tl.ascend_memory_planning": True,
+    "tl.ascend_auto_cv_combine": True,
+}
+# Explicit TileLang sync and Bisheng auto-sync are mutually exclusive. Keep the
+# flags beside the lowering contract so direct compilation cannot silently
+# fall back to compiler-only synchronization.
+FA_BWD_BISHENG_COMPILE_FLAGS = ("-O3", "--cce-auto-sync=off")
 INPUT_COPY_CONTRACT = {
     "q_flat": ("q_ub", 3),
     "k_flat": ("k_ub", 3),
@@ -178,6 +189,128 @@ def _split_top_level_arguments(arguments: str) -> list[str]:
     return result
 
 
+def _strip_redundant_outer_parentheses(expression: str) -> str:
+    """Remove only parentheses that enclose one complete C++ expression."""
+
+    result = expression.strip()
+    while result.startswith("(") and result.endswith(")"):
+        depth = 0
+        closes_at_end = False
+        for index, char in enumerate(result):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth < 0:
+                    raise AssertionError("unbalanced parentheses in generated expression")
+                if depth == 0:
+                    closes_at_end = index == len(result) - 1
+                    break
+        if depth != 0 or not closes_at_end:
+            break
+        result = result[1:-1].strip()
+    return result
+
+
+def _has_top_level_unit_offset(expression: str) -> bool:
+    """Detect the required ``base + 1`` generated-copy mutation control."""
+
+    result = _strip_redundant_outer_parentheses(expression)
+    depth = 0
+    for index, char in enumerate(result):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if depth < 0:
+                raise AssertionError("unbalanced delimiters in generated expression")
+        elif char in "+-" and depth == 0 and index > 0:
+            right = _strip_redundant_outer_parentheses(result[index + 1 :])
+            if right == "1":
+                return True
+    if depth:
+        raise AssertionError("unbalanced delimiters in generated expression")
+    return False
+
+
+def _integer_literal(expression: str) -> int | None:
+    normalized = _strip_redundant_outer_parentheses(expression)
+    if not re.fullmatch(r"[+-]?\d+", normalized):
+        return None
+    return int(normalized)
+
+
+def _validate_copy_extent_contract(
+    *,
+    kind: str,
+    width: int,
+    total_extent: str,
+    mask_shape_m: str,
+    valid_extent: str,
+) -> None:
+    """Validate the scalar arguments carried by one generated DMA helper."""
+
+    total_literal = _integer_literal(total_extent)
+    valid_literal = _integer_literal(valid_extent)
+    if _integer_literal(mask_shape_m) != 1:
+        raise AssertionError(
+            f"invalid {kind} copy extent: maskShapeM={mask_shape_m!r}, expected 1"
+        )
+    if total_literal is not None and total_literal <= 0:
+        raise AssertionError(
+            f"invalid {kind} copy extent: total={total_extent!r} is not positive"
+        )
+    if valid_literal is not None and not 1 <= valid_literal <= width:
+        raise AssertionError(
+            f"invalid {kind} copy extent: valid={valid_extent!r}, width={width}"
+        )
+    if (
+        total_literal is not None
+        and valid_literal is not None
+        and total_literal < valid_literal
+    ):
+        raise AssertionError(
+            f"invalid {kind} copy extent: total={total_literal} < valid={valid_literal}"
+        )
+    if _has_top_level_unit_offset(total_extent) or _has_top_level_unit_offset(
+        valid_extent
+    ):
+        raise AssertionError(
+            f"invalid {kind} copy extent: one-element mutation in "
+            f"total={total_extent!r} or valid={valid_extent!r}"
+        )
+
+
+def _validate_copy_offset(expression: str, *, kind: str, role: str) -> None:
+    if not expression.strip() or _has_top_level_unit_offset(expression):
+        raise AssertionError(f"invalid {kind} {role} offset: {expression!r}")
+    literal = _integer_literal(expression)
+    if literal is not None and literal < 0:
+        raise AssertionError(f"invalid {kind} {role} offset: {expression!r}")
+
+
+def _has_bound_output_sync(source: str) -> bool:
+    """Accept only a paired S/V-to-MTE3 event block before an output DMA."""
+
+    pattern = re.compile(
+        r"AscendC::(?P<op>SetFlag|WaitFlag)\s*<\s*"
+        r"AscendC::HardEvent::(?P<event>[A-Z0-9_]+)\s*>\s*"
+        r"\(\s*(?P<event_id>\d+)\s*\)\s*;"
+    )
+    calls = pattern.findall(source)
+    if pattern.sub("", source).strip():
+        return False
+    set_events = {
+        (event, event_id) for op, event, event_id in calls if op == "SetFlag"
+    }
+    wait_events = {
+        (event, event_id) for op, event, event_id in calls if op == "WaitFlag"
+    }
+    return bool(set_events) and set_events == wait_events and all(
+        event.endswith("_MTE3") for event, _ in set_events
+    )
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -294,6 +427,33 @@ def validate_real_source(
             f"{forbidden_global_scalar_accesses}"
         )
 
+    declared_global_tensors = set(
+        re.findall(
+            r"\bAscendC::GlobalTensor\s*<[^;>]+>\s+([A-Za-z_]\w*)\s*;",
+            executable,
+        )
+    )
+    declared_global_scalar_accesses = sorted(
+        tensor_name
+        for tensor_name in declared_global_tensors
+        if re.search(
+            rf"\b{re.escape(tensor_name)}\s*\.\s*(?:GetValue|SetValue)\s*\(",
+            executable,
+        )
+    )
+    if declared_global_scalar_accesses:
+        raise AssertionError(
+            f"{dtype}: declared GlobalTensor scalar access present: "
+            f"{declared_global_scalar_accesses}"
+        )
+
+    dcci_tokens = re.findall(
+        r"\b(?:DataCacheCleanAndInvalid|DCCI(?:_ENTIRE_CACHE)?|DcciDst)\b",
+        executable,
+    )
+    if dcci_tokens:
+        raise AssertionError(f"{dtype}: forbidden DCCI present: {dcci_tokens}")
+
     gm_to_ub_prefix = re.compile(r"\btl::ascend::copy_gm_to_ub\s*<")
     gm_to_ub_pattern = re.compile(
         r"\btl::ascend::copy_gm_to_ub\s*<\s*([^,>\n]+?)\s*,\s*(\d+)\s*>"
@@ -316,12 +476,15 @@ def validate_real_source(
             raise AssertionError(
                 f"{dtype}: GM-to-UB helper requires six arguments, got {arguments}"
             )
-        source_match = re.fullmatch(r"([A-Za-z_]\w*_flat)\s*\[.*\]", arguments[1])
+        source_match = re.fullmatch(
+            r"([A-Za-z_]\w*_flat)\s*\[(.*)\]", arguments[1], re.DOTALL
+        )
         if source_match is None or source_match.group(1) not in INPUT_COPY_CONTRACT:
             raise AssertionError(
                 f"{dtype}: GM-to-UB source is not an approved flat input: {arguments[1]}"
             )
         buffer_name = source_match.group(1)
+        _validate_copy_offset(source_match.group(2), kind="GM-to-UB", role="source")
         destination_name, _ = INPUT_COPY_CONTRACT[buffer_name]
         expected_type = "float" if buffer_name in {"max_flat", "sum_flat"} else data_type
         expected_width = "8" if buffer_name in {"max_flat", "sum_flat"} else "32"
@@ -336,6 +499,13 @@ def validate_real_source(
             raise AssertionError(
                 f"{dtype}: wrong GM-to-UB destination for {buffer_name}: {arguments[0]}"
             )
+        _validate_copy_extent_contract(
+            kind="GM-to-UB",
+            width=int(width),
+            total_extent=arguments[2],
+            mask_shape_m=arguments[3],
+            valid_extent=arguments[4],
+        )
         input_copy_counts[buffer_name] += 1
     expected_input_copy_counts = {
         buffer_name: count
@@ -370,12 +540,15 @@ def validate_real_source(
             raise AssertionError(
                 f"{dtype}: UB-to-GM helper requires five arguments, got {arguments}"
             )
-        target_match = re.fullmatch(r"([A-Za-z_]\w*_flat)\s*\[.*\]", arguments[0])
+        target_match = re.fullmatch(
+            r"([A-Za-z_]\w*_flat)\s*\[(.*)\]", arguments[0], re.DOTALL
+        )
         if target_match is None or target_match.group(1) not in OUTPUT_FLAT_BUFFERS:
             raise AssertionError(
                 f"{dtype}: UB-to-GM target is not an approved flat output: {arguments[0]}"
             )
         buffer_name = target_match.group(1)
+        _validate_copy_offset(target_match.group(2), kind="UB-to-GM", role="target")
         if re.sub(r"\s+", "", template_type) != data_type or width != "32":
             raise AssertionError(
                 f"{dtype}: wrong UB-to-GM dtype/width for {buffer_name}: "
@@ -387,6 +560,13 @@ def validate_real_source(
             raise AssertionError(
                 f"{dtype}: wrong UB-to-GM source for {buffer_name}: {arguments[1]}"
             )
+        _validate_copy_extent_contract(
+            kind="UB-to-GM",
+            width=int(width),
+            total_extent=arguments[2],
+            mask_shape_m=arguments[3],
+            valid_extent=arguments[4],
+        )
         output_copy_counts[buffer_name] += 1
         output_copy_records.append((match, buffer_name))
     expected_output_copy_counts = {buffer_name: 1 for buffer_name in OUTPUT_FLAT_BUFFERS}
@@ -432,11 +612,14 @@ def validate_real_source(
                 index
                 for index, (cast_match, _) in enumerate(parsed_casts)
                 if cast_match.end() <= output_match.start()
-                and not executable[cast_match.end() : output_match.start()].strip()
+                and _has_bound_output_sync(
+                    executable[cast_match.end() : output_match.start()]
+                )
             ]
             if len(adjacent) != 1 or adjacent[0] in used_casts:
                 raise AssertionError(
-                    f"{dtype}: output cast is not uniquely adjacent to {buffer_name} copy"
+                    f"{dtype}: output cast/copy dependency is not uniquely bound for "
+                    f"{buffer_name}"
                 )
             used_casts.add(adjacent[0])
             cast_bound_outputs.append(buffer_name)
@@ -456,6 +639,37 @@ def validate_real_source(
         raise AssertionError(
             f"{dtype}: loop-local scalar state was lifted out of its scope: "
             f"{leaked_scalar_accumulators}"
+        )
+
+    sync_pattern = (
+        r"\bAscendC::(?P<op>SetFlag|WaitFlag)\s*<\s*"
+        r"AscendC::HardEvent::(?P<event>[A-Z0-9_]+)\s*>\s*"
+        r"\(\s*(?P<event_id>\d+)\s*\)"
+    )
+    sync_calls = re.findall(sync_pattern, executable)
+    set_events = {
+        (event, event_id)
+        for op, event, event_id in sync_calls
+        if op == "SetFlag"
+    }
+    wait_events = {
+        (event, event_id) for op, event, event_id in sync_calls if op == "WaitFlag"
+    }
+    if set_events != wait_events:
+        raise AssertionError(
+            f"{dtype}: unpaired copy dependency events: "
+            f"set_only={sorted(set_events - wait_events)}, "
+            f"wait_only={sorted(wait_events - set_events)}"
+        )
+    paired_events = set_events & wait_events
+    missing_sync_directions = []
+    if not any(event.startswith("MTE2_") for event, _ in paired_events):
+        missing_sync_directions.append("MTE2-to-S/V")
+    if not any(event.endswith("_MTE3") for event, _ in paired_events):
+        missing_sync_directions.append("S/V-to-MTE3")
+    if missing_sync_directions:
+        raise AssertionError(
+            f"{dtype}: missing required copy dependency edges: {missing_sync_directions}"
         )
     return {
         "required_tokens": list(required_checks),
@@ -481,6 +695,11 @@ def validate_real_source(
         "lexical_comments_and_literals_stripped": True,
         "per_output_accumulator_resets": 3,
         "lifted_scalar_accumulators_absent": True,
+        "declared_global_scalar_access_absent": sorted(declared_global_tensors),
+        "dcci_absent": True,
+        "copy_dependency_event_pairs": sorted(
+            f"{event}:{event_id}" for event, event_id in paired_events
+        ),
     }
 
 
@@ -491,7 +710,7 @@ def lower_variant(dtype: str, host_entry: str, kernel_entry: str):
     from poc.fa_bwd_symbolic_lowering import make_fa_bwd_scalar
 
     function = make_fa_bwd_scalar(dtype, host_entry, kernel_entry)
-    with tvm.transform.PassContext(config={"tl.disable_safe_memory_legalize": True}):
+    with tvm.transform.PassContext(config=FA_BWD_PASS_CONFIGS):
         return tilelang.lower(function, target="ascendc", platform="A5")
 
 
@@ -505,7 +724,9 @@ def compile_variant(source: str, output: Path) -> tuple[list[str], Path, Path]:
         commands.append([str(item) for item in command])
         return real_run(command, *args, **kwargs)
 
-    generator = LibraryGenerator("ascendc", "A5")
+    generator = LibraryGenerator(
+        "ascendc", "A5", compile_flags=list(FA_BWD_BISHENG_COMPILE_FLAGS)
+    )
     generator.update_lib_code(source)
     with mock.patch("subprocess.run", side_effect=traced):
         generator.compile_lib(timeout=300)

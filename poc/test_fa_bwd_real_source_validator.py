@@ -9,9 +9,10 @@ import pytest
 
 from poc.run_fa_bwd_real_lowering import (
     CPP_DATA_TYPES,
+    FA_BWD_BISHENG_COMPILE_FLAGS,
+    FA_BWD_PASS_CONFIGS,
     FLAT_BUFFER_HANDLES,
     INPUT_COPY_CONTRACT,
-    INPUT_FLAT_BUFFERS,
     OUTPUT_FLAT_BUFFERS,
     SYMBOLIC_EXTENTS,
     _strip_cpp_comments_and_literals,
@@ -21,6 +22,17 @@ from poc.run_fa_bwd_real_lowering import (
 
 def _entry_names(dtype: str) -> tuple[str, str]:
     return f"host_fa_bwd_{dtype}", f"kernel_fa_bwd_{dtype}"
+
+
+def test_generator_enables_explicit_sync_and_disables_bisheng_auto_sync() -> None:
+    assert FA_BWD_PASS_CONFIGS == {
+        "tl.disable_safe_memory_legalize": True,
+        "tl.ascend_auto_sync": True,
+        "tl.ascend_auto_sync_vs": True,
+        "tl.ascend_memory_planning": True,
+        "tl.ascend_auto_cv_combine": True,
+    }
+    assert FA_BWD_BISHENG_COMPILE_FLAGS == ("-O3", "--cce-auto-sync=off")
 
 
 def _valid_source(dtype: str) -> str:
@@ -46,15 +58,19 @@ def _valid_source(dtype: str) -> str:
         for _ in range(copy_count):
             lines.append(
                 f"tl::ascend::copy_gm_to_ub<{buffer_type}, {width}>("
-                f"{destination_name}[0], {buffer_name}[0], 32, 1, 32, 0);"
+                f"{destination_name}[0], {buffer_name}[0], 32, 1, {width}, 0);"
             )
     lines.extend(
         [
+            "AscendC::SetFlag<AscendC::HardEvent::MTE2_S>(0);",
+            "AscendC::WaitFlag<AscendC::HardEvent::MTE2_S>(0);",
             "scratch.SetValue(0, 0.000000e+00f);",
             "scratch.SetValue(0, 0.000000e+00f);",
             "scratch.SetValue(0, 0.000000e+00f);",
             "scratch.SetValue(1, scratch.GetValue(1));",
             "AscendC::Exp(exp_out[0], exp_in[0], 32);",
+            "AscendC::SetFlag<AscendC::HardEvent::S_MTE3>(0);",
+            "AscendC::WaitFlag<AscendC::HardEvent::S_MTE3>(0);",
         ]
     )
     output_source = "acc_tile" if dtype == "float32" else "out_tile"
@@ -63,6 +79,12 @@ def _valid_source(dtype: str) -> str:
             lines.append(
                 "AscendC::Cast(out_tile[0], acc_tile[0], "
                 "AscendC::RoundMode::CAST_RINT, 32);"
+            )
+            lines.extend(
+                [
+                    "AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(1);",
+                    "AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(1);",
+                ]
             )
         lines.append(
             f"tl::ascend::copy_ub_to_gm<{data_type}, 32>("
@@ -138,6 +160,85 @@ def test_injected_flat_global_read_and_write_are_rejected() -> None:
         "dq_flat.SetValue(0, static_cast<half>(0));\n"
     )
     with pytest.raises(AssertionError, match="forbidden flat GlobalTensor scalar access"):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
+@pytest.mark.parametrize(
+    ("needle", "replacement", "message"),
+    [
+        ("q_flat[0]", "q_flat[(0) + 1]", "invalid GM-to-UB source offset"),
+        ("dq_flat[0]", "dq_flat[(0) + 1]", "invalid UB-to-GM target offset"),
+        (
+            "q_ub[0], q_flat[0], 32, 1, 32, 0",
+            "q_ub[0], q_flat[0], 32, 1, 0, 0",
+            "invalid GM-to-UB copy extent",
+        ),
+        (
+            "q_ub[0], q_flat[0], 32, 1, 32, 0",
+            "q_ub[0], q_flat[0], 32, 1, 33, 0",
+            "invalid GM-to-UB copy extent",
+        ),
+        (
+            "dq_flat[0], out_tile[0], 32, 1, 32",
+            "dq_flat[0], out_tile[0], 32, 1, 0",
+            "invalid UB-to-GM copy extent",
+        ),
+    ],
+)
+def test_copy_base_and_extent_mutations_are_rejected(
+    needle: str, replacement: str, message: str
+) -> None:
+    dtype = "float16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    source = _valid_source(dtype)
+    assert needle in source
+    known_bad = source.replace(needle, replacement, 1)
+    with pytest.raises(AssertionError, match=message):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
+def test_injected_dcci_is_rejected() -> None:
+    dtype = "float16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    known_bad = _valid_source(dtype) + (
+        "AscendC::DataCacheCleanAndInvalid<half, "
+        "AscendC::CacheLine::SINGLE_CACHE_LINE, "
+        "AscendC::DcciDst::CACHELINE_OUT>(dq_flat[0]);\n"
+    )
+    with pytest.raises(AssertionError, match="forbidden DCCI"):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
+def test_scalar_access_on_rogue_declared_global_tensor_is_rejected() -> None:
+    dtype = "float16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    known_bad = _valid_source(dtype) + (
+        "AscendC::GlobalTensor<half> rogue_global;\n"
+        "rogue_global.GetValue(0);\n"
+    )
+    with pytest.raises(AssertionError, match="declared GlobalTensor scalar access"):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
+def test_missing_required_copy_dependency_edges_are_rejected() -> None:
+    dtype = "float16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    known_bad = "\n".join(
+        line
+        for line in _valid_source(dtype).splitlines()
+        if "SetFlag<" not in line and "WaitFlag<" not in line
+    )
+    with pytest.raises(AssertionError, match="dependency"):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
+def test_unpaired_copy_dependency_event_is_rejected() -> None:
+    dtype = "float16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    known_bad = _valid_source(dtype).replace(
+        "AscendC::WaitFlag<AscendC::HardEvent::MTE2_S>(0);", "", 1
+    )
+    with pytest.raises(AssertionError, match="unpaired copy dependency events"):
         validate_real_source(known_bad, host_entry, kernel_entry, dtype)
 
 
