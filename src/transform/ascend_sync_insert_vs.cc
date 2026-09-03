@@ -760,12 +760,10 @@ private:
     } else if (sync_type.find("PipeBarrier_") == 0) {
       std::string pipeline = sync_type.substr(12);
       if (pipeline == "PIPE_V" && platform_ == "A5") {
-        // A5 does not support pipe_barrier(PIPE_V);
-        // raise error: the range of 1st parameter must be [4, 6]
-        // use V_V event pair
-        int event_id = AllocateEventId();
-        stmts.push_back(CreateSetFlag("V_V", event_id));
-        stmts.push_back(CreateWaitFlag("V_V", event_id));
+        // DAV3510 vector operations are ordered within PIPE_V.  Neither
+        // PipeBarrier<PIPE_V> nor HardEvent::V_V is legal in CANN 9.2: the
+        // latter lowers to the same pipe_barrier(PIPE_V) builtin.
+        return;
       } else {
         stmts.push_back(CreatePipeBarrier(pipeline));
       }
@@ -884,7 +882,10 @@ private:
     }
     // V->V (same pipeline)
     if (a == "PIPE_V" && b == "PIPE_V") {
-      return true;
+      // A5/DAV3510 executes this same-pipeline dependency in order.  Asking
+      // InsertSynchronization for a PIPE_V barrier would otherwise generate
+      // an illegal pipe_barrier(PIPE_V) instruction.
+      return platform_ != "A5";
     }
     // S <-> other (but not S->S, scalar pipeline is in-order)
     if ((a == "PIPE_S" || b == "PIPE_S") && a != b) {

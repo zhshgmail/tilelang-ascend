@@ -466,6 +466,15 @@ def validate_real_source(
             f"count={len(illegal_pipe_all)}"
         )
 
+    illegal_v_v = re.findall(
+        r"\bAscendC::(?:SetFlag|WaitFlag)\s*<\s*AscendC::HardEvent::V_V\s*>",
+        executable,
+    )
+    if illegal_v_v:
+        raise AssertionError(
+            f"{dtype}: illegal A5 V_V event present: count={len(illegal_v_v)}"
+        )
+
     gm_to_ub_prefix = re.compile(r"\btl::ascend::copy_gm_to_ub\s*<")
     gm_to_ub_pattern = re.compile(
         r"\btl::ascend::copy_gm_to_ub\s*<\s*([^,>\n]+?)\s*,\s*(\d+)\s*>"
@@ -710,6 +719,7 @@ def validate_real_source(
         "declared_global_scalar_access_absent": sorted(declared_global_tensors),
         "dcci_absent": True,
         "illegal_a5_pipe_all_absent": True,
+        "illegal_a5_v_v_absent": True,
         "copy_dependency_event_pairs": sorted(
             f"{event}:{event_id}" for event, event_id in paired_events
         ),

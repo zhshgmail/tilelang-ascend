@@ -46,8 +46,8 @@ Covers:
     7. Outer back-edge V -> inner S cross-iteration sync
 
   Boundary - Platform/backend edge cases:
-    1. A5 skips PIPE_V barrier (PTO)
-    2. A5 skips PIPE_V barrier (AscendC)
+    1. A5 skips same-pipeline V->V sync (PTO)
+    2. A5 skips same-pipeline V->V sync (AscendC)
     3. A5 still emits event pairs (S->V)
     4. Both backends consistent
     5. PTO auto-enabled by default
@@ -1552,7 +1552,8 @@ def test_if_without_else_propagation(target):
 
 
 @pytest.mark.ci_skip
-def test_a5_pto_pipe_v_v_barrier():
+def test_a5_pto_skips_v_to_v_sync():
+    """A5 V operations are ordered within PIPE_V; no invalid V_V event."""
 
     @T.prim_func
     def main(
@@ -1568,7 +1569,8 @@ def test_a5_pto_pipe_v_v_barrier():
             T.copy(b_ub, B[:, :])
 
     src, _ = _compile_and_get_source(main, PASS_VS_ONLY, target="pto", platform="A5", out_idx=[1])
-    _assert_has_sync(src, "pto", "v_v")
+    _assert_no_sync(src, "pto", "v_v")
+    _assert_no_sync(src, "pto", "barrier_v")
 
 
 @pytest.mark.ci_skip
@@ -1734,8 +1736,8 @@ def test_vs_with_memory_planning_off(target):
 
 
 @pytest.mark.ci_skip
-def test_a5_ascendc_pipe_v_v_barrier():
-    """Platform A5 + ascendc + V->V -> no PipeBarrier<PIPE_V>."""
+def test_a5_ascendc_skips_v_to_v_sync():
+    """A5 V operations are ordered within PIPE_V; no invalid V_V event."""
 
     @T.prim_func
     def main(
@@ -1751,7 +1753,8 @@ def test_a5_ascendc_pipe_v_v_barrier():
             T.copy(b_ub, B[:, :])
 
     src, _ = _compile_and_get_source(main, PASS_VS_ONLY, target="ascendc", platform="A5", out_idx=[1])
-    _assert_has_sync(src, "ascendc", "v_v")
+    _assert_no_sync(src, "ascendc", "v_v")
+    _assert_no_sync(src, "ascendc", "barrier_v")
 
 
 @pytest.mark.ci_skip

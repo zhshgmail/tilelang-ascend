@@ -453,6 +453,20 @@ def test_a5_source_rejects_illegal_pipe_all_barrier() -> None:
         validate_real_source(known_bad, host_entry, kernel_entry, dtype)
 
 
+def test_a5_source_rejects_illegal_v_v_event_pair() -> None:
+    dtype = "float16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    known_bad = _valid_source(dtype).replace(
+        "scratch.SetValue(0, 0.000000e+00f);",
+        "AscendC::SetFlag<AscendC::HardEvent::V_V>(0);\n"
+        "AscendC::WaitFlag<AscendC::HardEvent::V_V>(0);\n"
+        "scratch.SetValue(0, 0.000000e+00f);",
+        1,
+    )
+    with pytest.raises(AssertionError, match="illegal A5 V_V"):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
 def test_dsl_declares_bidirectional_output_dma_fences() -> None:
     source = FA_BWD_DSL.read_text(encoding="utf-8")
     for event_id in (1, 3, 5):
