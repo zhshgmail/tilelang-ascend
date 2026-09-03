@@ -9,18 +9,53 @@ import dataclasses
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from unittest import mock
 
-import tilelang
-from tilelang import tvm
-from tilelang.jit.adapter.libgen import LibraryGenerator
 
-from poc.fa_bwd_symbolic_lowering import make_fa_bwd_scalar
-from tilelang.jit.adapter import ascendc_dispatch, ascendc_provenance
+SYMBOLIC_EXTENTS = ("B", "Sq", "Hq", "D", "Sk", "Hk")
+FLAT_BUFFER_HANDLES = {
+    "q_flat": "q_handle",
+    "k_flat": "k_handle",
+    "v_flat": "v_handle",
+    "dy_flat": "dy_handle",
+    "max_flat": "softmax_max_handle",
+    "sum_flat": "softmax_sum_handle",
+    "attention_flat": "attention_handle",
+    "dq_flat": "dq_handle",
+    "dk_flat": "dk_handle",
+    "dv_flat": "dv_handle",
+}
+INPUT_FLAT_BUFFERS = (
+    "q_flat",
+    "k_flat",
+    "v_flat",
+    "dy_flat",
+    "max_flat",
+    "sum_flat",
+    "attention_flat",
+)
+OUTPUT_FLAT_BUFFERS = ("dq_flat", "dk_flat", "dv_flat")
+LEGACY_GLOBAL_SCALAR_TOKENS = (
+    "q.GetValue",
+    "k.GetValue",
+    "v.GetValue",
+    "dy.GetValue",
+    "softmax_max.GetValue",
+    "softmax_sum.GetValue",
+    "dq.SetValue",
+    "dk.SetValue",
+    "dv.SetValue",
+)
+CPP_DATA_TYPES = {
+    "float16": "half",
+    "bfloat16": "bfloat16_t",
+    "float32": "float",
+}
 
 
 def sha256(path: Path) -> str:
@@ -40,25 +75,14 @@ def write_json(path: Path, value: object) -> None:
 def validate_real_source(
     source: str, host_entry: str, kernel_entry: str, dtype: str
 ) -> dict[str, object]:
+    if dtype not in CPP_DATA_TYPES:
+        raise AssertionError(f"unsupported generated source dtype: {dtype}")
+    data_type = CPP_DATA_TYPES[dtype]
     required = [
         f'extern "C" void {host_entry}',
         f'extern "C" __global__ __aicore__ void {kernel_entry}',
         f"{kernel_entry}<<<",
-        "int64_t B",
-        "int64_t Sq",
-        "int64_t Sk",
-        "int64_t Hq",
-        "int64_t Hk",
-        "int64_t D",
-        "q.GetValue",
-        "k.GetValue",
-        "v.GetValue",
-        "dy.GetValue",
-        "softmax_max.GetValue",
-        "softmax_sum.GetValue",
-        "dq.SetValue",
-        "dk.SetValue",
-        "dv.SetValue",
+        *[f"int64_t {name}" for name in SYMBOLIC_EXTENTS],
         "AscendC::Exp",
     ]
     missing = [token for token in required if token not in source]
@@ -81,6 +105,101 @@ def validate_real_source(
             f"{dtype}: generated source retained preemptible generic device entry: "
             f"{present_generic_device_entries}"
         )
+
+    flat_bindings = {}
+    for buffer_name, handle_name in FLAT_BUFFER_HANDLES.items():
+        buffer_type = "float" if buffer_name in {"max_flat", "sum_flat"} else data_type
+        declaration = re.compile(
+            rf"\bAscendC::GlobalTensor<{re.escape(buffer_type)}>\s+"
+            rf"{re.escape(buffer_name)}\s*;"
+        )
+        binding = re.compile(
+            rf"\b{re.escape(buffer_name)}\.SetGlobalBuffer\("
+            rf"\(__gm__\s+{re.escape(buffer_type)}\s*\*\)"
+            rf"{re.escape(handle_name)}\s*\);"
+        )
+        declaration_count = len(declaration.findall(source))
+        binding_count = len(binding.findall(source))
+        if declaration_count != 1 or binding_count != 1:
+            raise AssertionError(
+                f"{dtype}: invalid flat GlobalTensor binding for {buffer_name}: "
+                f"declarations={declaration_count}, bindings={binding_count}, "
+                f"expected_handle={handle_name}"
+            )
+        flat_bindings[buffer_name] = handle_name
+
+    legacy_scalar_tokens = [
+        token
+        for token in LEGACY_GLOBAL_SCALAR_TOKENS
+        if re.search(rf"\b{re.escape(token)}", source)
+    ]
+    if legacy_scalar_tokens:
+        raise AssertionError(
+            f"{dtype}: obsolete parent global scalar pattern present: "
+            f"{legacy_scalar_tokens}"
+        )
+
+    flat_names = "|".join(map(re.escape, FLAT_BUFFER_HANDLES))
+    global_scalar_pattern = re.compile(
+        rf"\b(?:{flat_names})\.(?:GetValue|SetValue)\b"
+    )
+    forbidden_global_scalar_accesses = global_scalar_pattern.findall(source)
+    if forbidden_global_scalar_accesses:
+        raise AssertionError(
+            f"{dtype}: forbidden flat GlobalTensor scalar access present: "
+            f"{forbidden_global_scalar_accesses}"
+        )
+
+    gm_to_ub_token = "tl::ascend::copy_gm_to_ub<"
+    ub_to_gm_token = "tl::ascend::copy_ub_to_gm<"
+    gm_to_ub_count = source.count(gm_to_ub_token)
+    ub_to_gm_count = source.count(ub_to_gm_token)
+    if gm_to_ub_count != 19:
+        raise AssertionError(
+            f"{dtype}: expected exactly 19 GM-to-UB copies, got {gm_to_ub_count}"
+        )
+    if ub_to_gm_count != 3:
+        raise AssertionError(
+            f"{dtype}: expected exactly 3 UB-to-GM copies, got {ub_to_gm_count}"
+        )
+
+    missing_input_copy_sources = []
+    for buffer_name in INPUT_FLAT_BUFFERS:
+        pattern = re.compile(
+            rf"{re.escape(gm_to_ub_token)}[^>]+>\([^;\n]*,\s*"
+            rf"{re.escape(buffer_name)}\["
+        )
+        if not pattern.search(source):
+            missing_input_copy_sources.append(buffer_name)
+    if missing_input_copy_sources:
+        raise AssertionError(
+            f"{dtype}: flat input buffers missing GM-to-UB copies: "
+            f"{missing_input_copy_sources}"
+        )
+
+    output_copy_sources = "acc_tile" if dtype == "float32" else "out_tile"
+    output_copy_targets = {}
+    for buffer_name in OUTPUT_FLAT_BUFFERS:
+        pattern = re.compile(
+            rf"{re.escape(ub_to_gm_token)}{re.escape(data_type)},\s*32>\("
+            rf"{re.escape(buffer_name)}\[[^;\n]*,\s*{output_copy_sources}\[0\]"
+        )
+        count = len(pattern.findall(source))
+        if count != 1:
+            raise AssertionError(
+                f"{dtype}: expected one {buffer_name} UB-to-GM output copy from "
+                f"{output_copy_sources}, got {count}"
+            )
+        output_copy_targets[buffer_name] = output_copy_sources
+
+    cast_token = "AscendC::RoundMode::CAST_RINT"
+    cast_count = source.count(cast_token)
+    expected_cast_count = 0 if dtype == "float32" else 3
+    if cast_count != expected_cast_count:
+        raise AssertionError(
+            f"{dtype}: expected {expected_cast_count} CAST_RINT output conversions, "
+            f"got {cast_count}"
+        )
     if source.count("scratch.SetValue(0, 0.000000e+00f)") != 3:
         raise AssertionError(
             f"{dtype}: output accumulators are not reset for all three outputs"
@@ -92,28 +211,44 @@ def validate_real_source(
     ]
     if leaked_scalar_accumulators:
         raise AssertionError(
-            f"{dtype}: loop-local scalar state was lifted out of its scope: {leaked_scalar_accumulators}"
+            f"{dtype}: loop-local scalar state was lifted out of its scope: "
+            f"{leaked_scalar_accumulators}"
         )
     return {
         "required_tokens": required,
         "runtime_extent_count": sum(
-            f"int64_t {name}" in source for name in ascendc_dispatch.SYMBOLIC_EXTENTS
+            f"int64_t {name}" in source for name in SYMBOLIC_EXTENTS
         ),
         "forbidden_tokens_absent": forbidden,
         "generic_device_entry_absent": True,
         "kernel_entry": kernel_entry,
+        "flat_global_tensor_bindings": flat_bindings,
+        "gm_to_ub_copy_count": gm_to_ub_count,
+        "ub_to_gm_copy_count": ub_to_gm_count,
+        "flat_input_copy_sources": list(INPUT_FLAT_BUFFERS),
+        "flat_output_copy_targets": output_copy_targets,
+        "forbidden_flat_global_scalar_access_absent": list(FLAT_BUFFER_HANDLES),
+        "legacy_global_scalar_pattern_absent": list(LEGACY_GLOBAL_SCALAR_TOKENS),
+        "cast_rint_count": cast_count,
         "per_output_accumulator_resets": 3,
         "lifted_scalar_accumulators_absent": True,
     }
 
 
 def lower_variant(dtype: str, host_entry: str, kernel_entry: str):
+    import tilelang
+    from tilelang import tvm
+
+    from poc.fa_bwd_symbolic_lowering import make_fa_bwd_scalar
+
     function = make_fa_bwd_scalar(dtype, host_entry, kernel_entry)
     with tvm.transform.PassContext(config={"tl.disable_safe_memory_legalize": True}):
         return tilelang.lower(function, target="ascendc", platform="A5")
 
 
 def compile_variant(source: str, output: Path) -> tuple[list[str], Path, Path]:
+    from tilelang.jit.adapter.libgen import LibraryGenerator
+
     commands: list[list[str]] = []
     real_run = subprocess.run
 
@@ -171,6 +306,8 @@ def audit_symbol_isolation(
     output_root: Path, plan, variant_paths: list[Path], host_library: Path
 ) -> dict[str, object]:
     """Prove each host wrapper's relocation binds to its own device entry."""
+
+    from tilelang.jit.adapter import ascendc_dispatch
 
     audit_dir = output_root / "symbol_audit"
     audit_dir.mkdir(parents=True, exist_ok=False)
@@ -308,6 +445,8 @@ def write_manifest(root: Path) -> Path:
 
 
 def main() -> int:
+    from tilelang.jit.adapter import ascendc_dispatch, ascendc_provenance
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--cases", type=Path, required=True)
