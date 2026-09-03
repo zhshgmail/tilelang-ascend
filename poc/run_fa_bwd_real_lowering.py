@@ -58,7 +58,10 @@ CPP_DATA_TYPES = {
 }
 FA_BWD_PASS_CONFIGS = {
     "tl.disable_safe_memory_legalize": True,
-    "tl.ascend_auto_sync": True,
+    # A5 uses the VS-aware pass.  Running the legacy sibling as well inserts
+    # PIPE_ALL barriers, which DAV3510 Bisheng rejects (legal pipe range 4..6).
+    # VS still emits the explicit SetFlag/WaitFlag dependency edges below.
+    "tl.ascend_auto_sync": False,
     "tl.ascend_auto_sync_vs": True,
     "tl.ascend_memory_planning": True,
     "tl.ascend_auto_cv_combine": True,
@@ -454,6 +457,15 @@ def validate_real_source(
     if dcci_tokens:
         raise AssertionError(f"{dtype}: forbidden DCCI present: {dcci_tokens}")
 
+    illegal_pipe_all = re.findall(
+        r"\bAscendC::PipeBarrier\s*<\s*PIPE_ALL\s*>", executable
+    )
+    if illegal_pipe_all:
+        raise AssertionError(
+            f"{dtype}: illegal A5 PIPE_ALL barrier present: "
+            f"count={len(illegal_pipe_all)}"
+        )
+
     gm_to_ub_prefix = re.compile(r"\btl::ascend::copy_gm_to_ub\s*<")
     gm_to_ub_pattern = re.compile(
         r"\btl::ascend::copy_gm_to_ub\s*<\s*([^,>\n]+?)\s*,\s*(\d+)\s*>"
@@ -697,6 +709,7 @@ def validate_real_source(
         "lifted_scalar_accumulators_absent": True,
         "declared_global_scalar_access_absent": sorted(declared_global_tensors),
         "dcci_absent": True,
+        "illegal_a5_pipe_all_absent": True,
         "copy_dependency_event_pairs": sorted(
             f"{event}:{event_id}" for event, event_id in paired_events
         ),

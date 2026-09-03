@@ -27,7 +27,7 @@ def _entry_names(dtype: str) -> tuple[str, str]:
 def test_generator_enables_explicit_sync_and_disables_bisheng_auto_sync() -> None:
     assert FA_BWD_PASS_CONFIGS == {
         "tl.disable_safe_memory_legalize": True,
-        "tl.ascend_auto_sync": True,
+        "tl.ascend_auto_sync": False,
         "tl.ascend_auto_sync_vs": True,
         "tl.ascend_memory_planning": True,
         "tl.ascend_auto_cv_combine": True,
@@ -434,6 +434,19 @@ def test_obsolete_parent_scalar_pattern_is_rejected() -> None:
         "dq.SetValue(0, static_cast<half>(0));\n"
     )
     with pytest.raises(AssertionError, match="obsolete parent global scalar pattern"):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
+def test_a5_source_rejects_illegal_pipe_all_barrier() -> None:
+    dtype = "float16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    known_bad = _valid_source(dtype).replace(
+        "scratch.SetValue(0, 0.000000e+00f);",
+        "AscendC::PipeBarrier<PIPE_ALL>();\n"
+        "scratch.SetValue(0, 0.000000e+00f);",
+        1,
+    )
+    with pytest.raises(AssertionError, match="illegal A5 PIPE_ALL"):
         validate_real_source(known_bad, host_entry, kernel_entry, dtype)
 
 
