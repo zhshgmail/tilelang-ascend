@@ -61,33 +61,89 @@ struct Case {{
   float softcap;
 }};
 
+void write_contiguous_strides(
+    int64_t* output, int64_t d0, int64_t d1, int64_t d2, int64_t d3) {{
+  output[3] = 1;
+  output[2] = d3;
+  output[1] = d2 * output[2];
+  output[0] = d1 * output[1];
+}}
+
+void make_case_strides(const Case& c, int64_t* output) {{
+  write_contiguous_strides(output + 0, c.B, c.Sq, c.Hq, c.D);
+  write_contiguous_strides(output + 4, c.B, c.Sk, c.Hk, c.D);
+  write_contiguous_strides(output + 8, c.B, c.Sk, c.Hk, c.D);
+  write_contiguous_strides(output + 12, c.B, c.Sq, c.Hq, c.D);
+  write_contiguous_strides(output + 16, c.B, c.Hq, c.Sq, 8);
+  write_contiguous_strides(output + 20, c.B, c.Hq, c.Sq, 8);
+  write_contiguous_strides(output + 24, c.B, c.Sq, c.Hq, c.D);
+  write_contiguous_strides(output + 28, c.B, c.Sq, c.Hq, c.D);
+  write_contiguous_strides(output + 32, c.B, c.Sk, c.Hk, c.D);
+  write_contiguous_strides(output + 36, c.B, c.Sk, c.Hk, c.D);
+}}
+
 int main() {{
   Case cases[] = {{
 {chr(10).join(rows)}
   }};
-  uint8_t byte = 0;
+  uint8_t* tensors[TILELANG_FA_BWD_TENSOR_COUNT];
+  for (std::uintptr_t index = 0; index < TILELANG_FA_BWD_TENSOR_COUNT; ++index) {{
+    tensors[index] = reinterpret_cast<uint8_t*>(
+        0x100000000ULL + index * 0x10000000ULL);
+  }}
   for (const auto& c : cases) {{
+    int64_t strides[TILELANG_FA_BWD_STRIDE_COUNT];
+    make_case_strides(c, strides);
     g_last_key = -1;
     int rc = tilelang_fa_bwd_call(
-        &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
+        tensors[0], tensors[1], tensors[2], tensors[3], tensors[4],
+        tensors[5], tensors[6], tensors[7], tensors[8], tensors[9], strides,
+        TILELANG_FA_BWD_STRIDE_COUNT,
         c.B, c.Sq, c.Sk, c.Hq, c.Hk, c.D,
         c.causal, c.wl, c.wr, c.softcap, 1.0f, c.dtype, nullptr);
-    if (rc != 0 || g_last_key != c.dtype) {{
+    if (rc != TILELANG_FA_BWD_OK || g_last_key != c.dtype) {{
       std::cerr << "case " << c.id << " rc=" << rc
                 << " dispatched=" << g_last_key << " expected=" << c.dtype << "\\n";
       return 10;
     }}
   }}
+  Case negative_case = {{-1, 1, 3, 5, 2, 1, 16, 0, 0, -1, 0, 0.0f}};
+  int64_t negative_strides[TILELANG_FA_BWD_STRIDE_COUNT];
+  make_case_strides(negative_case, negative_strides);
   int bad_d = tilelang_fa_bwd_call(
-      &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
+      tensors[0], tensors[1], tensors[2], tensors[3], tensors[4],
+      tensors[5], tensors[6], tensors[7], tensors[8], tensors[9], negative_strides,
+      TILELANG_FA_BWD_STRIDE_COUNT,
       1, 3, 5, 2, 1, 17, 0, -1, 0, 0.0f, 1.0f, 0, nullptr);
-  if (bad_d != -3) return 11;
+  if (bad_d != TILELANG_FA_BWD_INVALID_SYMBOLIC_DOMAIN) return 11;
   int bad_dtype = tilelang_fa_bwd_call(
-      &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte, &byte,
+      tensors[0], tensors[1], tensors[2], tensors[3], tensors[4],
+      tensors[5], tensors[6], tensors[7], tensors[8], tensors[9], negative_strides,
+      TILELANG_FA_BWD_STRIDE_COUNT,
       1, 3, 5, 2, 1, 16, 0, -1, 0, 0.0f, 1.0f, 99, nullptr);
-  if (bad_dtype != -4) return 12;
+  if (bad_dtype != TILELANG_FA_BWD_UNSUPPORTED_DTYPE) return 12;
+  negative_strides[0] += 1;
+  int bad_stride = tilelang_fa_bwd_call(
+      tensors[0], tensors[1], tensors[2], tensors[3], tensors[4],
+      tensors[5], tensors[6], tensors[7], tensors[8], tensors[9], negative_strides,
+      TILELANG_FA_BWD_STRIDE_COUNT,
+      1, 3, 5, 2, 1, 16, 0, -1, 0, 0.0f, 1.0f, 0, nullptr);
+  if (bad_stride != TILELANG_FA_BWD_NONCONTIGUOUS) return 13;
+  negative_strides[0] -= 1;
+  int bad_alignment = tilelang_fa_bwd_call(
+      tensors[0] + 1, tensors[1], tensors[2], tensors[3], tensors[4],
+      tensors[5], tensors[6], tensors[7], tensors[8], tensors[9], negative_strides,
+      TILELANG_FA_BWD_STRIDE_COUNT,
+      1, 3, 5, 2, 1, 16, 0, -1, 0, 0.0f, 1.0f, 0, nullptr);
+  if (bad_alignment != TILELANG_FA_BWD_INVALID_POINTER) return 14;
+  int bad_alias = tilelang_fa_bwd_call(
+      tensors[0], tensors[1], tensors[2], tensors[3], tensors[4],
+      tensors[5], tensors[6], tensors[0], tensors[8], tensors[9], negative_strides,
+      TILELANG_FA_BWD_STRIDE_COUNT,
+      1, 3, 5, 2, 1, 16, 0, -1, 0, 0.0f, 1.0f, 0, nullptr);
+  if (bad_alias != TILELANG_FA_BWD_ALIAS_OVERLAP) return 15;
   std::cout << "dispatch_cases=" << (sizeof(cases) / sizeof(cases[0]))
-            << " negative_controls=2 PASS\\n";
+            << " negative_controls=5 PASS\\n";
   return 0;
 }}
 """
@@ -180,7 +236,17 @@ def main() -> int:
         ),
         "unsupported_case_ids": [],
         "rank_change_known_bad": rank_negative,
-        "runtime_guard_negative_controls": 2,
+        "runtime_guard_negative_controls": 5,
+        "host_admission": {
+            "tensor_count": 10,
+            "tensor_rank": 4,
+            "stride_value_count": 40,
+            "pointer_alignment_bytes": 32,
+            "contiguous_layout": "PASS_ALL_FIXED50",
+            "int32_index_domain": "CHECKED",
+            "output_input_overlap": "REJECTED",
+            "output_output_overlap": "REJECTED",
+        },
         "host_compile_rc": compile_run.returncode,
         "host_dispatch_rc": dispatch_run.returncode,
         "host_dispatch_stdout": dispatch_run.stdout.strip(),

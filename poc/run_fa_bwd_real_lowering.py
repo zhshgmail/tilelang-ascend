@@ -902,7 +902,27 @@ def run_planner_controls(repo: Path, cases: Path, output: Path) -> dict[str, obj
     )
     if completed.returncode != 0:
         raise RuntimeError(f"planner controls failed: rc={completed.returncode}")
-    return {"command": command, "returncode": completed.returncode}
+    result_path = output / "poc_result.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    expected_admission = {
+        "tensor_count": 10,
+        "tensor_rank": 4,
+        "stride_value_count": 40,
+        "pointer_alignment_bytes": 32,
+        "contiguous_layout": "PASS_ALL_FIXED50",
+        "int32_index_domain": "CHECKED",
+        "output_input_overlap": "REJECTED",
+        "output_output_overlap": "REJECTED",
+    }
+    if result.get("case_count") != 50 or result.get("host_admission") != expected_admission:
+        raise AssertionError("planner controls did not close the host admission contract")
+    return {
+        "command": command,
+        "returncode": completed.returncode,
+        "result": str(result_path),
+        "result_sha256": sha256(result_path),
+        "host_admission": expected_admission,
+    }
 
 
 def write_manifest(root: Path) -> Path:

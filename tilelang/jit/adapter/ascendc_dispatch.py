@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ DTYPE_CODES = {"float16": 0, "bfloat16": 1, "float32": 2}
 DTYPE_SUFFIXES = {"float16": "fp16", "bfloat16": "bf16", "float32": "fp32"}
 EXPECTED_RANK_SIGNATURE = (4, 4, 4, 4, 4, 4, 4)
 SYMBOLIC_EXTENTS = ("B", "Sq", "Sk", "Hq", "Hk", "D")
+MAX_GENERATED_INDEX = (1 << 31) - 1
 
 
 class AscendCSymbolicContractError(ValueError):
@@ -91,6 +93,24 @@ class FABwdCase:
         if self.D % 8 != 0:
             raise AscendCSymbolicContractError(
                 f"case {self.case_id}: D={self.D} violates runtime D%8 guard"
+            )
+        if self.window_left < -1 or self.window_right < -1:
+            raise AscendCSymbolicContractError(
+                f"case {self.case_id}: window bounds must be -1 or non-negative"
+            )
+        if not math.isfinite(self.softcap) or self.softcap < 0.0:
+            raise AscendCSymbolicContractError(
+                f"case {self.case_id}: softcap must be finite and non-negative"
+            )
+        tensor_elements = (
+            self.B * self.Sq * self.Hq * self.D,
+            self.B * self.Sk * self.Hk * self.D,
+            self.B * self.Hq * self.Sq * 8,
+        )
+        if any(elements > MAX_GENERATED_INDEX for elements in tensor_elements):
+            raise AscendCSymbolicContractError(
+                f"case {self.case_id}: logical tensor size exceeds generated int32 "
+                f"index domain: {tensor_elements}"
             )
 
 
@@ -191,6 +211,18 @@ _POINTER_ARGS = (
     "dk",
     "dv",
 )
+_TENSOR_SHAPES = (
+    ("B", "Sq", "Hq", "D"),
+    ("B", "Sk", "Hk", "D"),
+    ("B", "Sk", "Hk", "D"),
+    ("B", "Sq", "Hq", "D"),
+    ("B", "Hq", "Sq", "8"),
+    ("B", "Hq", "Sq", "8"),
+    ("B", "Sq", "Hq", "D"),
+    ("B", "Sq", "Hq", "D"),
+    ("B", "Sk", "Hk", "D"),
+    ("B", "Sk", "Hk", "D"),
+)
 _RUNTIME_ARGS = (
     ("int64_t", "B"),
     ("int64_t", "Sq"),
@@ -208,6 +240,8 @@ _RUNTIME_ARGS = (
 
 def _argument_declarations(include_dtype: bool) -> list[str]:
     declarations = [f"uint8_t* {name}" for name in _POINTER_ARGS]
+    declarations.append("const int64_t* tensor_strides")
+    declarations.append("int32_t tensor_stride_count")
     declarations.extend(f"{ctype} {name}" for ctype, name in _RUNTIME_ARGS)
     if include_dtype:
         declarations.append("int32_t dtype_code")
@@ -271,9 +305,161 @@ def render_dispatch_header(plan: AscendCDispatchPlan) -> str:
 
 using aclrtStream = void*;
 
+enum TileLangFABwdStatus : int32_t {{
+  TILELANG_FA_BWD_OK = 0,
+  TILELANG_FA_BWD_INVALID_EXTENT = -2,
+  TILELANG_FA_BWD_INVALID_SYMBOLIC_DOMAIN = -3,
+  TILELANG_FA_BWD_UNSUPPORTED_DTYPE = -4,
+  TILELANG_FA_BWD_INVALID_POINTER = -5,
+  TILELANG_FA_BWD_NONCONTIGUOUS = -6,
+  TILELANG_FA_BWD_SIZE_OVERFLOW = -7,
+  TILELANG_FA_BWD_ALIAS_OVERLAP = -8,
+}};
+
+// tensor_strides contains 10 row-major element-stride vectors in this order:
+// q, k, v, dy, softmax_max, softmax_sum, attention, dq, dk, dv.
+// Each tensor has fixed rank four; therefore callers provide exactly 40 values.
+enum : int32_t {{
+  TILELANG_FA_BWD_TENSOR_COUNT = 10,
+  TILELANG_FA_BWD_TENSOR_RANK = 4,
+  TILELANG_FA_BWD_STRIDE_COUNT = 40,
+}};
+
 extern "C" int tilelang_fa_bwd_call(
     {signature});
 """
+
+
+def _render_tensor_shapes() -> str:
+    return ",\n".join(
+        "    {" + ", ".join(shape) + "}" for shape in _TENSOR_SHAPES
+    )
+
+
+def _render_host_admission_support() -> str:
+    return """namespace {
+
+constexpr std::uintptr_t kRequiredAlignment = 32;
+constexpr std::size_t kFirstOutput = 7;
+
+struct ByteSpan {
+  std::uintptr_t begin;
+  std::uintptr_t end;
+};
+
+bool checked_mul(std::uint64_t lhs, std::uint64_t rhs, std::uint64_t* result) {
+  if (lhs != 0 && rhs > std::numeric_limits<std::uint64_t>::max() / lhs) {
+    return false;
+  }
+  *result = lhs * rhs;
+  return true;
+}
+
+int validate_contiguous_strides(
+    const int64_t* strides,
+    const int64_t* shape,
+    std::uint64_t element_bytes,
+    uint8_t* pointer,
+    ByteSpan* span) {
+  std::uint64_t elements = 1;
+  for (std::size_t axis = 0; axis < TILELANG_FA_BWD_TENSOR_RANK; ++axis) {
+    if (!checked_mul(elements, static_cast<std::uint64_t>(shape[axis]), &elements)) {
+      return TILELANG_FA_BWD_SIZE_OVERFLOW;
+    }
+  }
+  // The generated scalar loops and flattened lane indices are int32 today.
+  // Admit only domains those generated indices can represent exactly.
+  if (elements > static_cast<std::uint64_t>(
+                     std::numeric_limits<int32_t>::max())) {
+    return TILELANG_FA_BWD_SIZE_OVERFLOW;
+  }
+  std::uint64_t expected_stride = 1;
+  for (std::size_t axis = TILELANG_FA_BWD_TENSOR_RANK; axis-- > 0;) {
+    if (expected_stride > static_cast<std::uint64_t>(
+                              std::numeric_limits<int64_t>::max())) {
+      return TILELANG_FA_BWD_SIZE_OVERFLOW;
+    }
+    if (strides[axis] != static_cast<int64_t>(expected_stride)) {
+      return TILELANG_FA_BWD_NONCONTIGUOUS;
+    }
+    if (!checked_mul(
+            expected_stride, static_cast<std::uint64_t>(shape[axis]),
+            &expected_stride)) {
+      return TILELANG_FA_BWD_SIZE_OVERFLOW;
+    }
+  }
+  std::uint64_t bytes = 0;
+  if (!checked_mul(elements, element_bytes, &bytes)) {
+    return TILELANG_FA_BWD_SIZE_OVERFLOW;
+  }
+  const auto begin = reinterpret_cast<std::uintptr_t>(pointer);
+  if (bytes > std::numeric_limits<std::uintptr_t>::max() - begin) {
+    return TILELANG_FA_BWD_SIZE_OVERFLOW;
+  }
+  span->begin = begin;
+  span->end = begin + static_cast<std::uintptr_t>(bytes);
+  return TILELANG_FA_BWD_OK;
+}
+
+bool overlaps(const ByteSpan& lhs, const ByteSpan& rhs) {
+  return lhs.begin < rhs.end && rhs.begin < lhs.end;
+}
+
+}  // namespace"""
+
+
+def _render_host_admission_body() -> str:
+    pointer_names = ", ".join(_POINTER_ARGS)
+    shapes = _render_tensor_shapes()
+    return f"""  if (B <= 0 || Sq <= 0 || Sk <= 0 || Hq <= 0 || Hk <= 0 || D <= 0) {{
+    return TILELANG_FA_BWD_INVALID_EXTENT;
+  }}
+  if ((Hq % Hk) != 0 || (D % 8) != 0 || (causal != 0 && causal != 1) ||
+      window_left < -1 || window_right < -1 || !std::isfinite(softcap) ||
+      softcap < 0.0f || !std::isfinite(scale) || scale <= 0.0f) {{
+    return TILELANG_FA_BWD_INVALID_SYMBOLIC_DOMAIN;
+  }}
+  if (dtype_code < 0 || dtype_code > 2) {{
+    return TILELANG_FA_BWD_UNSUPPORTED_DTYPE;
+  }}
+  if (tensor_strides == nullptr) {{
+    return TILELANG_FA_BWD_INVALID_POINTER;
+  }}
+  if (tensor_stride_count != TILELANG_FA_BWD_STRIDE_COUNT) {{
+    return TILELANG_FA_BWD_NONCONTIGUOUS;
+  }}
+
+  uint8_t* tensors[TILELANG_FA_BWD_TENSOR_COUNT] = {{{pointer_names}}};
+  for (uint8_t* pointer : tensors) {{
+    if (pointer == nullptr ||
+        (reinterpret_cast<std::uintptr_t>(pointer) & (kRequiredAlignment - 1)) != 0) {{
+      return TILELANG_FA_BWD_INVALID_POINTER;
+    }}
+  }}
+
+  const int64_t shapes[TILELANG_FA_BWD_TENSOR_COUNT]
+                      [TILELANG_FA_BWD_TENSOR_RANK] = {{
+{shapes}
+  }};
+  const std::uint64_t value_bytes = dtype_code == 2 ? 4 : 2;
+  const std::uint64_t element_bytes[TILELANG_FA_BWD_TENSOR_COUNT] = {{
+      value_bytes, value_bytes, value_bytes, value_bytes, 4,
+      4, value_bytes, value_bytes, value_bytes, value_bytes}};
+  ByteSpan spans[TILELANG_FA_BWD_TENSOR_COUNT] = {{}};
+  for (std::size_t tensor = 0; tensor < TILELANG_FA_BWD_TENSOR_COUNT; ++tensor) {{
+    const int status = validate_contiguous_strides(
+        tensor_strides + tensor * TILELANG_FA_BWD_TENSOR_RANK,
+        shapes[tensor], element_bytes[tensor], tensors[tensor], &spans[tensor]);
+    if (status != TILELANG_FA_BWD_OK) return status;
+  }}
+  for (std::size_t output = kFirstOutput;
+       output < TILELANG_FA_BWD_TENSOR_COUNT; ++output) {{
+    for (std::size_t other = 0; other < output; ++other) {{
+      if (overlaps(spans[output], spans[other])) {{
+        return TILELANG_FA_BWD_ALIAS_OVERLAP;
+      }}
+    }}
+  }}"""
 
 
 def render_dispatch_source(plan: AscendCDispatchPlan) -> str:
@@ -284,20 +470,29 @@ def render_dispatch_source(plan: AscendCDispatchPlan) -> str:
     )
     call_args = ", ".join(_wrapper_argument_names())
     cases = "\n".join(
-        f"    case {variant.dispatch_key}: {variant.host_entry}({call_args}); return 0;"
+        f"    case {variant.dispatch_key}: {variant.host_entry}({call_args}); "
+        "return TILELANG_FA_BWD_OK;"
         for variant in plan.variants
     )
+    signature = ", ".join(_argument_declarations(include_dtype=True))
     return f"""#include "fa_bwd_dispatch.hpp"
+
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 
 {declarations}
 
+{_render_host_admission_support()}
+
 extern "C" int tilelang_fa_bwd_call(
-    {", ".join(_argument_declarations(include_dtype=True))}) {{
-  if (B <= 0 || Sq <= 0 || Sk <= 0 || Hq <= 0 || Hk <= 0 || D <= 0) return -2;
-  if ((Hq % Hk) != 0 || (D % 8) != 0) return -3;
+    {signature}) {{
+{_render_host_admission_body()}
+
   switch (dtype_code) {{
 {cases}
-    default: return -4;
+    default: return TILELANG_FA_BWD_UNSUPPORTED_DTYPE;
   }}
 }}
 """
