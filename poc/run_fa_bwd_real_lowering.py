@@ -56,6 +56,126 @@ CPP_DATA_TYPES = {
     "bfloat16": "bfloat16_t",
     "float32": "float",
 }
+INPUT_COPY_CONTRACT = {
+    "q_flat": ("q_ub", 3),
+    "k_flat": ("k_ub", 3),
+    "v_flat": ("v_ub", 2),
+    "dy_flat": ("dy_ub", 3),
+    "max_flat": ("max_ub", 3),
+    "sum_flat": ("sum_ub", 3),
+    "attention_flat": ("attention_ub", 2),
+}
+
+
+_RAW_STRING_PREFIX = re.compile(
+    r'(?:u8|u|U|L)?R"(?P<delimiter>[^ ()\\\t\v\f\r\n]{0,16})\('
+)
+
+
+def _strip_cpp_comments_and_literals(source: str) -> str:
+    """Blank C/C++ comments and literals while preserving source positions."""
+
+    output = list(source)
+    state = "code"
+    index = 0
+    while index < len(source):
+        char = source[index]
+        following = source[index + 1] if index + 1 < len(source) else ""
+        if state == "code":
+            raw_match = _RAW_STRING_PREFIX.match(source, index)
+            if raw_match is not None:
+                closing = ")" + raw_match.group("delimiter") + '"'
+                end = source.find(closing, raw_match.end())
+                if end < 0:
+                    raise AssertionError("unterminated C++ raw string literal")
+                for position in range(index, end + len(closing)):
+                    if source[position] not in "\r\n":
+                        output[position] = " "
+                index = end + len(closing)
+                continue
+            if char == "/" and following == "/":
+                output[index] = output[index + 1] = " "
+                state = "line_comment"
+                index += 2
+                continue
+            if char == "/" and following == "*":
+                output[index] = output[index + 1] = " "
+                state = "block_comment"
+                index += 2
+                continue
+            if char == '"':
+                output[index] = " "
+                state = "string"
+            elif char == "'":
+                output[index] = " "
+                state = "character"
+            index += 1
+            continue
+        if state == "line_comment":
+            if char in "\r\n":
+                if index == 0 or source[index - 1] != "\\":
+                    state = "code"
+            else:
+                output[index] = " "
+            index += 1
+            continue
+        if state == "block_comment":
+            if char == "*" and following == "/":
+                output[index] = output[index + 1] = " "
+                state = "code"
+                index += 2
+            else:
+                if char not in "\r\n":
+                    output[index] = " "
+                index += 1
+            continue
+        if state in {"string", "character"}:
+            quote = '"' if state == "string" else "'"
+            if char == "\\":
+                output[index] = " "
+                if following:
+                    if following not in "\r\n":
+                        output[index + 1] = " "
+                    index += 2
+                else:
+                    index += 1
+                continue
+            if char == quote:
+                output[index] = " "
+                state = "code"
+                index += 1
+                continue
+            if char in "\r\n":
+                raise AssertionError(f"unterminated C++ {state} literal")
+            output[index] = " "
+            index += 1
+            continue
+        raise AssertionError(f"unknown C++ lexer state: {state}")
+    if state not in {"code", "line_comment"}:
+        raise AssertionError(f"unterminated C++ lexical construct: {state}")
+    return "".join(output)
+
+
+def _split_top_level_arguments(arguments: str) -> list[str]:
+    """Split one already stripped call argument list at top-level commas."""
+
+    pairs = {")": "(", "]": "[", "}": "{"}
+    stack = []
+    result = []
+    start = 0
+    for index, char in enumerate(arguments):
+        if char in "([{":
+            stack.append(char)
+        elif char in pairs:
+            if not stack or stack.pop() != pairs[char]:
+                raise AssertionError("unbalanced delimiters in generated call")
+        elif char == "," and not stack:
+            result.append(arguments[start:index].strip())
+            start = index + 1
+    if stack:
+        raise AssertionError("unbalanced delimiters in generated call")
+    result.append(arguments[start:].strip())
+    return result
 
 
 def sha256(path: Path) -> str:
@@ -78,27 +198,34 @@ def validate_real_source(
     if dtype not in CPP_DATA_TYPES:
         raise AssertionError(f"unsupported generated source dtype: {dtype}")
     data_type = CPP_DATA_TYPES[dtype]
-    required = [
-        f'extern "C" void {host_entry}',
-        f'extern "C" __global__ __aicore__ void {kernel_entry}',
-        f"{kernel_entry}<<<",
-        *[f"int64_t {name}" for name in SYMBOLIC_EXTENTS],
-        "AscendC::Exp",
-    ]
-    missing = [token for token in required if token not in source]
+    executable = _strip_cpp_comments_and_literals(source)
+    required_checks = {
+        "host_entry": re.compile(rf"\bextern\s+void\s+{re.escape(host_entry)}\b"),
+        "kernel_entry": re.compile(
+            rf"\bextern\s+__global__\s+__aicore__\s+void\s+"
+            rf"{re.escape(kernel_entry)}\b"
+        ),
+        "kernel_launch": re.compile(rf"\b{re.escape(kernel_entry)}\s*<<<"),
+        "AscendC::Exp": re.compile(r"\bAscendC::Exp\b"),
+        **{
+            f"int64_t {name}": re.compile(rf"\bint64_t\s+{re.escape(name)}\b")
+            for name in SYMBOLIC_EXTENTS
+        },
+    }
+    missing = [name for name, pattern in required_checks.items() if not pattern.search(executable)]
     if missing:
         raise AssertionError(
             f"{dtype}: generated source missing real-lowering tokens: {missing}"
         )
     forbidden = ["ABI-only", "ABI_ONLY", "non-numerical"]
-    present_forbidden = [token for token in forbidden if token in source]
+    present_forbidden = [token for token in forbidden if token in executable]
     if present_forbidden:
         raise AssertionError(
             f"{dtype}: generated source contains ABI sentinel tokens: {present_forbidden}"
         )
     generic_device_entry_tokens = [" void main_kernel(", " main_kernel<<<"]
     present_generic_device_entries = [
-        token for token in generic_device_entry_tokens if token in source
+        token for token in generic_device_entry_tokens if token in executable
     ]
     if present_generic_device_entries:
         raise AssertionError(
@@ -106,32 +233,49 @@ def validate_real_source(
             f"{present_generic_device_entries}"
         )
 
+    bound_aliases = re.findall(
+        r"\b([A-Za-z_]\w*_flat)\.SetGlobalBuffer\s*\(", executable
+    )
+    unknown_bound_aliases = sorted(set(bound_aliases) - set(FLAT_BUFFER_HANDLES))
+    if unknown_bound_aliases:
+        raise AssertionError(
+            f"{dtype}: unexpected flat GlobalTensor bindings: {unknown_bound_aliases}"
+        )
     flat_bindings = {}
     for buffer_name, handle_name in FLAT_BUFFER_HANDLES.items():
         buffer_type = "float" if buffer_name in {"max_flat", "sum_flat"} else data_type
         declaration = re.compile(
-            rf"\bAscendC::GlobalTensor<{re.escape(buffer_type)}>\s+"
+            rf"\bAscendC::GlobalTensor<\s*([^>]+?)\s*>\s+"
             rf"{re.escape(buffer_name)}\s*;"
         )
-        binding = re.compile(
-            rf"\b{re.escape(buffer_name)}\.SetGlobalBuffer\("
-            rf"\(__gm__\s+{re.escape(buffer_type)}\s*\*\)"
-            rf"{re.escape(handle_name)}\s*\);"
+        binding_calls = re.compile(
+            rf"\b{re.escape(buffer_name)}\.SetGlobalBuffer\s*\((.*?)\)\s*;",
+            re.DOTALL,
         )
-        declaration_count = len(declaration.findall(source))
-        binding_count = len(binding.findall(source))
-        if declaration_count != 1 or binding_count != 1:
+        declarations = declaration.findall(executable)
+        bindings = binding_calls.findall(executable)
+        if len(declarations) != 1 or len(bindings) != 1:
             raise AssertionError(
                 f"{dtype}: invalid flat GlobalTensor binding for {buffer_name}: "
-                f"declarations={declaration_count}, bindings={binding_count}, "
+                f"declarations={len(declarations)}, bindings={len(bindings)}, "
                 f"expected_handle={handle_name}"
+            )
+        declared_type = re.sub(r"\s+", "", declarations[0])
+        expected_binding = re.compile(
+            rf"\(\s*__gm__\s+{re.escape(buffer_type)}\s*\*\s*\)\s*"
+            rf"{re.escape(handle_name)}\s*"
+        )
+        if declared_type != buffer_type or not expected_binding.fullmatch(bindings[0]):
+            raise AssertionError(
+                f"{dtype}: wrong dtype/cast/handle binding for {buffer_name}: "
+                f"declaration={declarations[0]!r}, binding={bindings[0]!r}"
             )
         flat_bindings[buffer_name] = handle_name
 
     legacy_scalar_tokens = [
         token
         for token in LEGACY_GLOBAL_SCALAR_TOKENS
-        if re.search(rf"\b{re.escape(token)}", source)
+        if re.search(rf"\b{re.escape(token)}", executable)
     ]
     if legacy_scalar_tokens:
         raise AssertionError(
@@ -143,71 +287,170 @@ def validate_real_source(
     global_scalar_pattern = re.compile(
         rf"\b(?:{flat_names})\.(?:GetValue|SetValue)\b"
     )
-    forbidden_global_scalar_accesses = global_scalar_pattern.findall(source)
+    forbidden_global_scalar_accesses = global_scalar_pattern.findall(executable)
     if forbidden_global_scalar_accesses:
         raise AssertionError(
             f"{dtype}: forbidden flat GlobalTensor scalar access present: "
             f"{forbidden_global_scalar_accesses}"
         )
 
-    gm_to_ub_token = "tl::ascend::copy_gm_to_ub<"
-    ub_to_gm_token = "tl::ascend::copy_ub_to_gm<"
-    gm_to_ub_count = source.count(gm_to_ub_token)
-    ub_to_gm_count = source.count(ub_to_gm_token)
-    if gm_to_ub_count != 19:
+    gm_to_ub_prefix = re.compile(r"\btl::ascend::copy_gm_to_ub\s*<")
+    gm_to_ub_pattern = re.compile(
+        r"\btl::ascend::copy_gm_to_ub\s*<\s*([^,>\n]+?)\s*,\s*(\d+)\s*>"
+        r"\s*\(([^;\n]*)\)\s*;"
+    )
+    gm_to_ub_matches = list(gm_to_ub_pattern.finditer(executable))
+    gm_to_ub_occurrences = len(gm_to_ub_prefix.findall(executable))
+    if len(gm_to_ub_matches) != gm_to_ub_occurrences:
+        raise AssertionError(f"{dtype}: malformed or multiline GM-to-UB helper call")
+    if len(gm_to_ub_matches) != 19:
         raise AssertionError(
-            f"{dtype}: expected exactly 19 GM-to-UB copies, got {gm_to_ub_count}"
-        )
-    if ub_to_gm_count != 3:
-        raise AssertionError(
-            f"{dtype}: expected exactly 3 UB-to-GM copies, got {ub_to_gm_count}"
+            f"{dtype}: expected exactly 19 GM-to-UB copies, got {len(gm_to_ub_matches)}"
         )
 
-    missing_input_copy_sources = []
-    for buffer_name in INPUT_FLAT_BUFFERS:
-        pattern = re.compile(
-            rf"{re.escape(gm_to_ub_token)}[^>]+>\([^;\n]*,\s*"
-            rf"{re.escape(buffer_name)}\["
-        )
-        if not pattern.search(source):
-            missing_input_copy_sources.append(buffer_name)
-    if missing_input_copy_sources:
-        raise AssertionError(
-            f"{dtype}: flat input buffers missing GM-to-UB copies: "
-            f"{missing_input_copy_sources}"
-        )
-
-    output_copy_sources = "acc_tile" if dtype == "float32" else "out_tile"
-    output_copy_targets = {}
-    for buffer_name in OUTPUT_FLAT_BUFFERS:
-        pattern = re.compile(
-            rf"{re.escape(ub_to_gm_token)}{re.escape(data_type)},\s*32>\("
-            rf"{re.escape(buffer_name)}\[[^;\n]*,\s*{output_copy_sources}\[0\]"
-        )
-        count = len(pattern.findall(source))
-        if count != 1:
+    input_copy_counts = {buffer_name: 0 for buffer_name in INPUT_FLAT_BUFFERS}
+    for match in gm_to_ub_matches:
+        template_type, width, raw_arguments = match.groups()
+        arguments = _split_top_level_arguments(raw_arguments)
+        if len(arguments) != 6:
             raise AssertionError(
-                f"{dtype}: expected one {buffer_name} UB-to-GM output copy from "
-                f"{output_copy_sources}, got {count}"
+                f"{dtype}: GM-to-UB helper requires six arguments, got {arguments}"
             )
-        output_copy_targets[buffer_name] = output_copy_sources
-
-    cast_token = "AscendC::RoundMode::CAST_RINT"
-    cast_count = source.count(cast_token)
-    expected_cast_count = 0 if dtype == "float32" else 3
-    if cast_count != expected_cast_count:
+        source_match = re.fullmatch(r"([A-Za-z_]\w*_flat)\s*\[.*\]", arguments[1])
+        if source_match is None or source_match.group(1) not in INPUT_COPY_CONTRACT:
+            raise AssertionError(
+                f"{dtype}: GM-to-UB source is not an approved flat input: {arguments[1]}"
+            )
+        buffer_name = source_match.group(1)
+        destination_name, _ = INPUT_COPY_CONTRACT[buffer_name]
+        expected_type = "float" if buffer_name in {"max_flat", "sum_flat"} else data_type
+        expected_width = "8" if buffer_name in {"max_flat", "sum_flat"} else "32"
+        if re.sub(r"\s+", "", template_type) != expected_type or width != expected_width:
+            raise AssertionError(
+                f"{dtype}: wrong GM-to-UB dtype/width for {buffer_name}: "
+                f"<{template_type}, {width}>"
+            )
+        if not re.fullmatch(
+            rf"{re.escape(destination_name)}\s*\[\s*0\s*\]", arguments[0]
+        ):
+            raise AssertionError(
+                f"{dtype}: wrong GM-to-UB destination for {buffer_name}: {arguments[0]}"
+            )
+        input_copy_counts[buffer_name] += 1
+    expected_input_copy_counts = {
+        buffer_name: count
+        for buffer_name, (_, count) in INPUT_COPY_CONTRACT.items()
+    }
+    if input_copy_counts != expected_input_copy_counts:
         raise AssertionError(
-            f"{dtype}: expected {expected_cast_count} CAST_RINT output conversions, "
-            f"got {cast_count}"
+            f"{dtype}: wrong GM-to-UB source multiplicities: "
+            f"expected={expected_input_copy_counts}, got={input_copy_counts}"
         )
-    if source.count("scratch.SetValue(0, 0.000000e+00f)") != 3:
+
+    ub_to_gm_prefix = re.compile(r"\btl::ascend::copy_ub_to_gm\s*<")
+    ub_to_gm_pattern = re.compile(
+        r"\btl::ascend::copy_ub_to_gm\s*<\s*([^,>\n]+?)\s*,\s*(\d+)\s*>"
+        r"\s*\(([^;\n]*)\)\s*;"
+    )
+    ub_to_gm_matches = list(ub_to_gm_pattern.finditer(executable))
+    ub_to_gm_occurrences = len(ub_to_gm_prefix.findall(executable))
+    if len(ub_to_gm_matches) != ub_to_gm_occurrences:
+        raise AssertionError(f"{dtype}: malformed or multiline UB-to-GM helper call")
+    if len(ub_to_gm_matches) != 3:
+        raise AssertionError(
+            f"{dtype}: expected exactly 3 UB-to-GM copies, got {len(ub_to_gm_matches)}"
+        )
+    output_copy_sources = "acc_tile" if dtype == "float32" else "out_tile"
+    output_copy_counts = {buffer_name: 0 for buffer_name in OUTPUT_FLAT_BUFFERS}
+    output_copy_records = []
+    for match in ub_to_gm_matches:
+        template_type, width, raw_arguments = match.groups()
+        arguments = _split_top_level_arguments(raw_arguments)
+        if len(arguments) != 5:
+            raise AssertionError(
+                f"{dtype}: UB-to-GM helper requires five arguments, got {arguments}"
+            )
+        target_match = re.fullmatch(r"([A-Za-z_]\w*_flat)\s*\[.*\]", arguments[0])
+        if target_match is None or target_match.group(1) not in OUTPUT_FLAT_BUFFERS:
+            raise AssertionError(
+                f"{dtype}: UB-to-GM target is not an approved flat output: {arguments[0]}"
+            )
+        buffer_name = target_match.group(1)
+        if re.sub(r"\s+", "", template_type) != data_type or width != "32":
+            raise AssertionError(
+                f"{dtype}: wrong UB-to-GM dtype/width for {buffer_name}: "
+                f"<{template_type}, {width}>"
+            )
+        if not re.fullmatch(
+            rf"{re.escape(output_copy_sources)}\s*\[\s*0\s*\]", arguments[1]
+        ):
+            raise AssertionError(
+                f"{dtype}: wrong UB-to-GM source for {buffer_name}: {arguments[1]}"
+            )
+        output_copy_counts[buffer_name] += 1
+        output_copy_records.append((match, buffer_name))
+    expected_output_copy_counts = {buffer_name: 1 for buffer_name in OUTPUT_FLAT_BUFFERS}
+    if output_copy_counts != expected_output_copy_counts:
+        raise AssertionError(
+            f"{dtype}: wrong UB-to-GM target multiplicities: "
+            f"expected={expected_output_copy_counts}, got={output_copy_counts}"
+        )
+
+    cast_pattern = re.compile(r"\bAscendC::Cast\s*\((.*?)\)\s*;", re.DOTALL)
+    parsed_casts = []
+    for match in cast_pattern.finditer(executable):
+        arguments = _split_top_level_arguments(match.group(1))
+        if arguments and re.fullmatch(r"out_tile\s*\[.*\]", arguments[0]):
+            parsed_casts.append((match, arguments))
+    output_cast_occurrences = len(
+        re.findall(r"\bAscendC::Cast\s*\(\s*out_tile\s*\[", executable)
+    )
+    if len(parsed_casts) != output_cast_occurrences:
+        raise AssertionError(f"{dtype}: malformed output-target AscendC::Cast call")
+    expected_cast_count = 0 if dtype == "float32" else 3
+    if len(parsed_casts) != expected_cast_count:
+        raise AssertionError(
+            f"{dtype}: expected {expected_cast_count} structural output casts, "
+            f"got {len(parsed_casts)}"
+        )
+    for _, arguments in parsed_casts:
+        normalized = [re.sub(r"\s+", "", argument) for argument in arguments]
+        if normalized != [
+            "out_tile[0]",
+            "acc_tile[0]",
+            "AscendC::RoundMode::CAST_RINT",
+            "32",
+        ]:
+            raise AssertionError(
+                f"{dtype}: invalid output cast arguments: {arguments}"
+            )
+    cast_bound_outputs = []
+    if dtype != "float32":
+        used_casts = set()
+        for output_match, buffer_name in output_copy_records:
+            adjacent = [
+                index
+                for index, (cast_match, _) in enumerate(parsed_casts)
+                if cast_match.end() <= output_match.start()
+                and not executable[cast_match.end() : output_match.start()].strip()
+            ]
+            if len(adjacent) != 1 or adjacent[0] in used_casts:
+                raise AssertionError(
+                    f"{dtype}: output cast is not uniquely adjacent to {buffer_name} copy"
+                )
+            used_casts.add(adjacent[0])
+            cast_bound_outputs.append(buffer_name)
+        if len(used_casts) != 3:
+            raise AssertionError(f"{dtype}: not all output casts are bound to output copies")
+
+    if executable.count("scratch.SetValue(0, 0.000000e+00f)") != 3:
         raise AssertionError(
             f"{dtype}: output accumulators are not reset for all three outputs"
         )
     leaked_scalar_accumulators = [
         token
         for token in ["float dq_acc", "float dk_acc", "float dv_acc", "int masked"]
-        if token in source
+        if token in executable
     ]
     if leaked_scalar_accumulators:
         raise AssertionError(
@@ -215,21 +458,27 @@ def validate_real_source(
             f"{leaked_scalar_accumulators}"
         )
     return {
-        "required_tokens": required,
+        "required_tokens": list(required_checks),
         "runtime_extent_count": sum(
-            f"int64_t {name}" in source for name in SYMBOLIC_EXTENTS
+            bool(re.search(rf"\bint64_t\s+{re.escape(name)}\b", executable))
+            for name in SYMBOLIC_EXTENTS
         ),
         "forbidden_tokens_absent": forbidden,
         "generic_device_entry_absent": True,
         "kernel_entry": kernel_entry,
         "flat_global_tensor_bindings": flat_bindings,
-        "gm_to_ub_copy_count": gm_to_ub_count,
-        "ub_to_gm_copy_count": ub_to_gm_count,
-        "flat_input_copy_sources": list(INPUT_FLAT_BUFFERS),
-        "flat_output_copy_targets": output_copy_targets,
+        "gm_to_ub_copy_count": len(gm_to_ub_matches),
+        "ub_to_gm_copy_count": len(ub_to_gm_matches),
+        "flat_input_copy_multiplicities": input_copy_counts,
+        "flat_output_copy_multiplicities": output_copy_counts,
+        "flat_output_copy_sources": {
+            buffer_name: output_copy_sources for buffer_name in OUTPUT_FLAT_BUFFERS
+        },
         "forbidden_flat_global_scalar_access_absent": list(FLAT_BUFFER_HANDLES),
         "legacy_global_scalar_pattern_absent": list(LEGACY_GLOBAL_SCALAR_TOKENS),
-        "cast_rint_count": cast_count,
+        "cast_rint_count": len(parsed_casts),
+        "cast_bound_outputs": cast_bound_outputs,
+        "lexical_comments_and_literals_stripped": True,
         "per_output_accumulator_resets": 3,
         "lifted_scalar_accumulators_absent": True,
     }
