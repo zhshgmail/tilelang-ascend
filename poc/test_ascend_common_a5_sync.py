@@ -10,16 +10,25 @@ COMMON_HEADER = (
 )
 
 
-def test_dav3510_common_header_uses_explicit_per_pipe_drain() -> None:
+def test_dav3510_common_header_uses_directional_hard_events() -> None:
     source = COMMON_HEADER.read_text(encoding="utf-8")
 
     # CANN 9.2 Bisheng rejects PIPE_ALL for DAV3510 when auto-sync is disabled.
-    # Keep the legacy spelling only in the non-3510 preprocessor branch, and
-    # route every former shared-header call site through the compatibility
-    # helper so generated kernels remain source-product compilable.
-    assert "CATLASS_DEVICE void pipe_barrier_all_compat()" in source
-    assert source.count("AscendC::PipeBarrier<PIPE_ALL>();") == 1
-    assert source.count("pipe_barrier_all_compat();") == 11
-
-    for pipe in ("PIPE_V", "PIPE_MTE2", "PIPE_MTE3", "PIPE_MTE1", "PIPE_M", "PIPE_FIX"):
-        assert f"AscendC::PipeBarrier<{pipe}>();" in source
+    # PIPE_V is also a no-op on this target.  Tail helpers are modelled as
+    # PIPE_V operations, so synchronize their scalar implementation with V_S
+    # on entry and S_V on exit.  gemmL1 drains its final FIX producer before M
+    # reuses L0C.  FetchEventID avoids colliding with caller-owned literal IDs.
+    assert "CATLASS_DEVICE void hard_event_barrier_compat()" in source
+    assert "GetTPipePtr()->FetchEventID(event)" in source
+    assert "AscendC::SetFlag<event>(event_id);" in source
+    assert "AscendC::WaitFlag<event>(event_id);" in source
+    assert "AscendC::PipeBarrier<PIPE_ALL>();" not in source
+    assert source.count(
+        "hard_event_barrier_compat<AscendC::HardEvent::V_S>();"
+    ) == 5
+    assert source.count(
+        "hard_event_barrier_compat<AscendC::HardEvent::S_V>();"
+    ) == 5
+    assert source.count(
+        "hard_event_barrier_compat<AscendC::HardEvent::FIX_M>();"
+    ) == 1
