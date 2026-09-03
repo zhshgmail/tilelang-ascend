@@ -68,8 +68,9 @@ template <AscendC::HardEvent event>
 CATLASS_DEVICE void hard_event_barrier_compat() {
   // DAV3510 rejects PIPE_ALL and treats PIPE_V barriers as no-ops.  Use the
   // exact producer/consumer event instead.  FetchEventID returns an available
-  // ID without reserving it, so an immediate set/wait pair neither collides
-  // with caller-owned literal IDs nor exhausts the event pool in a loop.
+  // TPipe-managed ID without reserving it, so an immediate set/wait pair does
+  // not exhaust the event pool in a loop.  Callers must still avoid leaving an
+  // outstanding hard-coded event of the same kind across this helper.
   event_t event_id = static_cast<event_t>(GetTPipePtr()->FetchEventID(event));
   AscendC::SetFlag<event>(event_id);
   AscendC::WaitFlag<event>(event_id);

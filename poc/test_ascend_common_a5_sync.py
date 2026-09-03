@@ -17,7 +17,8 @@ def test_dav3510_common_header_uses_directional_hard_events() -> None:
     # PIPE_V is also a no-op on this target.  Tail helpers are modelled as
     # PIPE_V operations, so synchronize their scalar implementation with V_S
     # on entry and S_V on exit.  gemmL1 drains its final FIX producer before M
-    # reuses L0C.  FetchEventID avoids colliding with caller-owned literal IDs.
+    # reuses L0C.  FetchEventID respects TPipe-managed event occupancy; literal
+    # event lifetime remains a caller contract.
     assert "CATLASS_DEVICE void hard_event_barrier_compat()" in source
     assert (
         "event_t event_id = "
