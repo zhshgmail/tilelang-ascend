@@ -1,25 +1,15 @@
 {
   "schema_version": 1,
-  "observed_at_utc": "2026-09-02T17:06:28Z",
+  "observed_at_utc": "2026-09-03T00:16:45Z",
   "official": {
     "remote": "https://github.com/tile-ai/tilelang-ascend.git",
     "ref": "refs/heads/ascendc_pto",
-    "head": "01e7254dc51685fd77f41e5807c42e6537e17645",
-    "previous_head": "5e1dbfa15602642938d289ca561279a0c989a234",
-    "new_commits": [
-      "9db5cd84a93ad2731bceef834caf0c1ef8f83188",
-      "da5b98a28861836ee85836d6eaf6baf3a6373855",
-      "01e7254dc51685fd77f41e5807c42e6537e17645"
-    ]
+    "head": "01e7254dc51685fd77f41e5807c42e6537e17645"
   },
   "colleague_a3": {
     "remote": "https://github.com/wzzll123/tilelang-ascend.git",
     "ref": "refs/heads/ascendc_pto",
-    "head": "b0dcbf42fbc4ce7e28d594b50b3dba8a7b29e093",
-    "previous_head": "4df68b237f235619a96a8106e21fbcd1830528f4",
-    "new_commits": [
-      "b0dcbf42fbc4ce7e28d594b50b3dba8a7b29e093"
-    ]
+    "head": "b0dcbf42fbc4ce7e28d594b50b3dba8a7b29e093"
   },
   "pull_requests": [
     {
@@ -71,15 +61,5 @@
       "url": "https://github.com/tile-ai/tilelang-ascend/pull/1724",
       "relevance": "FP16 reduce_sum widened accumulation for AscendC and PTO"
     }
-  ],
-  "packaging_rejection": {
-    "commit": "003aed3f5316855d181a34084644be664c112527",
-    "reason": "README and PROVENANCE mixed source heads observed at different times",
-    "locators": [
-      "README.md:14",
-      "README.md:61",
-      "README.md:63",
-      "docs/PROVENANCE.md:39-48"
-    ]
-  }
+  ]
 }

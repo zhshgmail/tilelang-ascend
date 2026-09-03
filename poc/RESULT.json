@@ -11,18 +11,18 @@
       "-DCATLASS_ARCH=3510",
       "-std=c++17",
       "-xasc",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include/experiment/msprof",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include/experiment/runtime",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc/runtime",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc/profiling",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/catlass/include",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/shmem/include",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/shmem/src/device",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include/experiment/msprof",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include/experiment/runtime",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc/runtime",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc/profiling",
+      "-I/work/e287_source/3rdparty/catlass/include",
+      "-I/work/e287_source/3rdparty/shmem/include",
+      "-I/work/e287_source/3rdparty/shmem/src/device",
       "-DBACKEND_HYBM",
-      "-I/work/provenance_repo_fd1be6e5/tilelang/../src",
-      "-L/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/lib64",
+      "-I/work/e287_source/tilelang/../src",
+      "-L/data/pri/Ascend/9.1.0.B150/cann-9.1.0/lib64",
       "-Wno-macro-redefined",
       "-Wno-ignored-attributes",
       "-Wno-non-c-typedef-for-linkage",
@@ -35,10 +35,10 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmp__sias73.cpp",
+      "/tmp/tmpt0rwc5r3.cpp",
       "-O2",
       "-o",
-      "/tmp/tmp__sias73.so"
+      "/tmp/tmpt0rwc5r3.so"
     ],
     "float16": [
       "bisheng",
@@ -46,18 +46,18 @@
       "-DCATLASS_ARCH=3510",
       "-std=c++17",
       "-xasc",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include/experiment/msprof",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include/experiment/runtime",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc/runtime",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc/profiling",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/catlass/include",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/shmem/include",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/shmem/src/device",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include/experiment/msprof",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include/experiment/runtime",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc/runtime",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc/profiling",
+      "-I/work/e287_source/3rdparty/catlass/include",
+      "-I/work/e287_source/3rdparty/shmem/include",
+      "-I/work/e287_source/3rdparty/shmem/src/device",
       "-DBACKEND_HYBM",
-      "-I/work/provenance_repo_fd1be6e5/tilelang/../src",
-      "-L/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/lib64",
+      "-I/work/e287_source/tilelang/../src",
+      "-L/data/pri/Ascend/9.1.0.B150/cann-9.1.0/lib64",
       "-Wno-macro-redefined",
       "-Wno-ignored-attributes",
       "-Wno-non-c-typedef-for-linkage",
@@ -70,10 +70,10 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmpz_j9ee3_.cpp",
+      "/tmp/tmpkl0u1dq8.cpp",
       "-O2",
       "-o",
-      "/tmp/tmpz_j9ee3_.so"
+      "/tmp/tmpkl0u1dq8.so"
     ],
     "float32": [
       "bisheng",
@@ -81,18 +81,18 @@
       "-DCATLASS_ARCH=3510",
       "-std=c++17",
       "-xasc",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include/experiment/msprof",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/include/experiment/runtime",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc/runtime",
-      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/pkg_inc/profiling",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/catlass/include",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/shmem/include",
-      "-I/work/provenance_repo_fd1be6e5/3rdparty/shmem/src/device",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include/experiment/msprof",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/include/experiment/runtime",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc/runtime",
+      "-I/data/pri/Ascend/9.1.0.B150/cann-9.1.0/pkg_inc/profiling",
+      "-I/work/e287_source/3rdparty/catlass/include",
+      "-I/work/e287_source/3rdparty/shmem/include",
+      "-I/work/e287_source/3rdparty/shmem/src/device",
       "-DBACKEND_HYBM",
-      "-I/work/provenance_repo_fd1be6e5/tilelang/../src",
-      "-L/data/pri/Ascend/9.1.0.B150/cann-9.1.0/x86_64-linux/lib64",
+      "-I/work/e287_source/tilelang/../src",
+      "-L/data/pri/Ascend/9.1.0.B150/cann-9.1.0/lib64",
       "-Wno-macro-redefined",
       "-Wno-ignored-attributes",
       "-Wno-non-c-typedef-for-linkage",
@@ -105,10 +105,10 @@
       "-ldl",
       "-fPIC",
       "--shared",
-      "/tmp/tmp9zqr2c_u.cpp",
+      "/tmp/tmpbijfxjvn.cpp",
       "-O2",
       "-o",
-      "/tmp/tmp9zqr2c_u.so"
+      "/tmp/tmpbijfxjvn.so"
     ]
   },
   "build_provenance": {
@@ -118,14 +118,32 @@
     },
     "path": "BUILD_PROVENANCE.json",
     "positive_consumer": "PASS",
-    "sha256": "7672176343389332d081604a7e235e1b8b84ac303aa63c7b3650b8320fe792cb",
-    "source_commit": "43a44017deec4698c30631ec125ab044294b8332",
-    "source_observed_at_utc": "2026-09-02T17:06:28Z",
-    "source_tree": "372f2550fe1ba3a760763c6adbca30cefb76d67a"
+    "sha256": "d288a2b950ed29f44176345c3b541b83f0d5a9b6e4a39e2e1ce15bbb31d81bc8",
+    "source_commit": "e287677f3e328cd190181edf443f855983af574a",
+    "source_observed_at_utc": "2026-09-03T00:16:45Z",
+    "source_tree": "33ca51941324468e785c81297619501ebdf06739"
   },
   "case_manifest": {
+    "canonical_inputs": {
+      "op29_fixed50_json": {
+        "path": "/work/e287_transfer/canonical_inputs/29_FlashAttentionBwd/problems/29_FlashAttentionBwd/29_FlashAttentionBwd.json",
+        "sha256": "63b545dd67682935c51910b42c4324c4d375559aff12b44b469c1aaecd97c253"
+      },
+      "op29_fixed50_shapes_csv": {
+        "path": "/work/e287_source/poc/inputs/op29_fa_bwd_fixed50_shapes.csv",
+        "sha256": "6cb3fef12299b661ec01923e5216f135aa5be0fbe97abb5aad60f21684efd889"
+      },
+      "op29_operator_source": {
+        "path": "/work/e287_transfer/external_inputs/op29_model_new_ascendc.py",
+        "sha256": "2d714ce7a96c13a632c4548b0c8bd2f3af4b987873488230ae079b74c4b541e7"
+      },
+      "op29_reference_model": {
+        "path": "/work/e287_transfer/canonical_inputs/29_FlashAttentionBwd/problems/29_FlashAttentionBwd/model.py",
+        "sha256": "71a29698c475bb66844308eb96429fe8300f2fd6bacfb32a3f5c338038e72793"
+      }
+    },
     "count": 50,
-    "path": "/work/provenance_repo_fd1be6e5/poc/inputs/op29_fa_bwd_fixed50_shapes.csv",
+    "path": "/work/e287_source/poc/inputs/op29_fa_bwd_fixed50_shapes.csv",
     "sha256": "6cb3fef12299b661ec01923e5216f135aa5be0fbe97abb5aad60f21684efd889"
   },
   "device_execution": "NOT_RUN_NO_NPU_ADMISSION",
@@ -258,9 +276,9 @@
       "-O2",
       "-fPIC",
       "--shared",
-      "-I/work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/host",
-      "/work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/host/fa_bwd_dispatch.cpp",
-      "-L/work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/kernel",
+      "-I/work/e287_builds/bundle_e287677f_b150_attempt1/generated/host",
+      "/work/e287_builds/bundle_e287677f_b150_attempt1/generated/host/fa_bwd_dispatch.cpp",
+      "-L/work/e287_builds/bundle_e287677f_b150_attempt1/generated/kernel",
       "-Wl,--no-as-needed",
       "-l:fa_bwd_fp16.so",
       "-l:fa_bwd_bf16.so",
@@ -268,7 +286,7 @@
       "-Wl,-z,defs",
       "-Wl,-rpath,$ORIGIN/kernel",
       "-o",
-      "/work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/libtilelang_fa_bwd_dispatch.so"
+      "/work/e287_builds/bundle_e287677f_b150_attempt1/generated/libtilelang_fa_bwd_dispatch.so"
     ],
     "path": "generated/libtilelang_fa_bwd_dispatch.so",
     "rtld_now": "PASS_NO_WRAPPER_CALL",
@@ -285,14 +303,14 @@
   "performance": "NOT_MEASURED",
   "planner_controls": {
     "command": [
-      "/usr/bin/python",
-      "/work/provenance_repo_fd1be6e5/poc/run_fa_symbolic_dispatch_poc.py",
+      "/usr/local/python3.11.0/bin/python3",
+      "/work/e287_source/poc/run_fa_symbolic_dispatch_poc.py",
       "--repo",
-      "/work/provenance_repo_fd1be6e5",
+      "/work/e287_source",
       "--cases",
-      "/work/provenance_repo_fd1be6e5/poc/inputs/op29_fa_bwd_fixed50_shapes.csv",
+      "/work/e287_source/poc/inputs/op29_fa_bwd_fixed50_shapes.csv",
       "--output",
-      "/work/provenance_build_fd1be6e5/bundle_43a44017_b150/planner_controls"
+      "/work/e287_builds/bundle_e287677f_b150_attempt1/planner_controls"
     ],
     "returncode": 0
   },
@@ -382,7 +400,7 @@
         "generic_main_kernel_absent": true,
         "host_entry": "call_fa_bwd_bf16",
         "kernel_symbol": "fa_bwd_bf16_kernel",
-        "ld_debug_self_binding": "82530:\tbinding file /work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/kernel/fa_bwd_bf16.so [0] to /work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/kernel/fa_bwd_bf16.so [0]: normal symbol `fa_bwd_bf16_kernel'",
+        "ld_debug_self_binding": "98429:\tbinding file /work/e287_builds/bundle_e287677f_b150_attempt1/generated/kernel/fa_bwd_bf16.so [0] to /work/e287_builds/bundle_e287677f_b150_attempt1/generated/kernel/fa_bwd_bf16.so [0]: normal symbol `fa_bwd_bf16_kernel'",
         "library": "generated/kernel/fa_bwd_bf16.so",
         "self_symbol_relocation_present": true
       },
@@ -391,7 +409,7 @@
         "generic_main_kernel_absent": true,
         "host_entry": "call_fa_bwd_fp16",
         "kernel_symbol": "fa_bwd_fp16_kernel",
-        "ld_debug_self_binding": "82530:\tbinding file /work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/kernel/fa_bwd_fp16.so [0] to /work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/kernel/fa_bwd_fp16.so [0]: normal symbol `fa_bwd_fp16_kernel'",
+        "ld_debug_self_binding": "98429:\tbinding file /work/e287_builds/bundle_e287677f_b150_attempt1/generated/kernel/fa_bwd_fp16.so [0] to /work/e287_builds/bundle_e287677f_b150_attempt1/generated/kernel/fa_bwd_fp16.so [0]: normal symbol `fa_bwd_fp16_kernel'",
         "library": "generated/kernel/fa_bwd_fp16.so",
         "self_symbol_relocation_present": true
       },
@@ -400,7 +418,7 @@
         "generic_main_kernel_absent": true,
         "host_entry": "call_fa_bwd_fp32",
         "kernel_symbol": "fa_bwd_fp32_kernel",
-        "ld_debug_self_binding": "82530:\tbinding file /work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/kernel/fa_bwd_fp32.so [0] to /work/provenance_build_fd1be6e5/bundle_43a44017_b150/generated/kernel/fa_bwd_fp32.so [0]: normal symbol `fa_bwd_fp32_kernel'",
+        "ld_debug_self_binding": "98429:\tbinding file /work/e287_builds/bundle_e287677f_b150_attempt1/generated/kernel/fa_bwd_fp32.so [0] to /work/e287_builds/bundle_e287677f_b150_attempt1/generated/kernel/fa_bwd_fp32.so [0]: normal symbol `fa_bwd_fp32_kernel'",
         "library": "generated/kernel/fa_bwd_fp32.so",
         "self_symbol_relocation_present": true
       }
@@ -411,17 +429,17 @@
     "bfloat16": {
       "bytes": 581448,
       "path": "generated/kernel/fa_bwd_bf16.so",
-      "sha256": "bf13c97d9b44fbcd6558350033079d8e1d4a2d568c3183b3cbebb9f93850a7c0"
+      "sha256": "7a3e947aa0718fd2a539f1eb2c3741701696038401bb70a2623635dcfb8ad58f"
     },
     "float16": {
       "bytes": 577408,
       "path": "generated/kernel/fa_bwd_fp16.so",
-      "sha256": "a36dd9071ea4d0d809b5517f8b7658f120298906f059e299cad85a417916daec"
+      "sha256": "fac6d879ab744ef4573f227513bf9c72c1abe7b76d91f12f10b9a648e40dd5b6"
     },
     "float32": {
       "bytes": 575432,
       "path": "generated/kernel/fa_bwd_fp32.so",
-      "sha256": "70aba7215aacbf8c4f35d1c835b0d133d8779b04a1749fbbd35cbdccf23adc48"
+      "sha256": "b82ac98ce5ca5d3a90b5075d172e8dc4f9b8011cdce489e96afc80469da35337"
     }
   }
 }

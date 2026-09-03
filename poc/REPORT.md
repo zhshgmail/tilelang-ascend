@@ -1,148 +1,60 @@
-# TileLang AscendC symbolic FlashAttention backward compiler PoC v4
+# TileLang e287 A5 symbolic FA backward build claims
 
 ## Bounded verdict
 
-- observed_at_utc: `2026-09-02T17:06:28Z`
-- operator: `29_FlashAttentionBwd`
-- authority: `AUTHOR_EVIDENCE_ONLY`
-- target: A5 AscendC, `dav-3510`, `CATLASS_ARCH=3510`
-- source commit/tree: `43a44017deec4698c30631ec125ab044294b8332` / `372f2550fe1ba3a760763c6adbca30cefb76d67a`
-- result: one compiler-generated host dispatcher plus three real TileLang-lowered and Bisheng-built typed kernels covers all 50 compile/dispatch rows
-- device execution: `NOT_RUN_NO_NPU_ADMISSION`
-- fixed50 numerical precision: `NOT_MEASURED`
-- performance: `NOT_MEASURED`
+- recorded UTC: `2026-09-03T00:39:41Z`
+- source commit/tree: `e287677f3e328cd190181edf443f855983af574a` / `33ca51941324468e785c81297619501ebdf06739`
+- package: `/work/e287_builds/bundle_e287677f_b150_attempt2_packaged`
+- target: A5 AscendC `dav-3510`, `CATLASS_ARCH=3510`
+- `A5_BUILD_ABI`: **PASS**, build-only and typed-DSO ABI scope only
+- committed claims at attempt1 review: **REJECT**
+- device execution / fixed50 precision / performance: **NOT RUN**
 
-This proves the card-free compiler/build/ABI path only. It does not claim that
-the kernels are numerically correct or fast on A5 hardware.
+This is author evidence only. It does not establish device execution, numerical correctness,
+performance, or product acceptance. Fresh non-author exact-head review is mandatory.
 
-## Fresh upstream and colleague source identities
+## Exact identity
 
-- official repo/ref: <https://github.com/tile-ai/tilelang-ascend.git>
-  `refs/heads/ascendc_pto`
-- official head: `01e7254dc51685fd77f41e5807c42e6537e17645`
-- colleague A3 fork/ref: <https://github.com/wzzll123/tilelang-ascend.git>
-  `refs/heads/ascendc_pto`
-- colleague A3 head: `b0dcbf42fbc4ce7e28d594b50b3dba8a7b29e093`
-- native A5 support [PR #1702](https://github.com/tile-ai/tilelang-ascend/pull/1702): OPEN, head `2b5cc9b705e3142524126d4f2f727498896d596a`
+Fresh source observation SHA256 is
+`033a023a3b4faf5e2147a7023101759b369e409b02dc25a5c2599c4f28af73b3`, observed
+`2026-09-03T00:16:45Z`. The four canonical input hashes are:
 
-The official branch advanced from the earlier frozen `5e1dbfa1...` through
-three commits: persistent-partial single-wave handling, packed-mask cleanup,
-and heavy tile-kernel test migration. None touches the PoC's changed compiler
-files. The A3 fork advanced once, by documentation only. Related open heads
-were refreshed for #1335 symbolic address/size (`d484bdc...`), #1452 high-rank
-copy flattening (`32fb712...`), #1693 TND shared-prefix FA (`6df22a9...`),
-#1708 roadmap (`d6b6339...`), #1723 K-tail (`b8d65d0...`), and #1724 widened
-FP16 reduce-sum (`e238839...`). `poc/SOURCE_OBSERVATION.json` is the machine-
-readable receipt; all generated provenance uses its single observation time.
+- fixed50 JSON: `63b545dd67682935c51910b42c4324c4d375559aff12b44b469c1aaecd97c253`
+- fixed50 shapes CSV: `6cb3fef12299b661ec01923e5216f135aa5be0fbe97abb5aad60f21684efd889`
+- operator source: `2d714ce7a96c13a632c4548b0c8bd2f3af4b987873488230ae079b74c4b541e7`
+- reference model: `71a29698c475bb66844308eb96429fe8300f2fd6bacfb32a3f5c338038e72793`
 
-## Fixed50 symbolic-shape contract
+Compiler and toolchain hashes:
 
-The committed case manifest is
-`poc/inputs/op29_fa_bwd_fixed50_shapes.csv`, SHA256
-`6cb3fef12299b661ec01923e5216f135aa5be0fbe97abb5aad60f21684efd889`.
-It contains exactly 50 cases.
+- libtilelang_module.so: `d05fa79cd5110c03bb399e288e17dfaf3a5b3b1225d06b7204fe8caac3274a2b`
+- libtvm.so: `d8d84f3c63d40462d99a9199b85d8a1ce587da328800d281962585b7e17cfeec`
+- Bisheng B150: `8120f5d1fd5cc2df8499f2aa1b301ec7a8126d66bd23226c721de378872a918d`
 
-All Q/K/V/DY/attention/softmax tensors have rank 4 in every case. Therefore
-the observed DIM variation is variation of **extent**, not rank:
+Native DSO hashes are host dispatcher `c64c5b822b0b5f51c301b56adcef1aec2466fb46f80dfc9e320bba0cfb918ec9`,
+FP16 `fac6d879ab744ef4573f227513bf9c72c1abe7b76d91f12f10b9a648e40dd5b6`,
+BF16 `7a3e947aa0718fd2a539f1eb2c3741701696038401bb70a2623635dcfb8ad58f`,
+and FP32 `b82ac98ce5ca5d3a90b5075d172e8dc4f9b8011cdce489e96afc80469da35337`.
+The build-only container is
+`root@141.61.33.141:zheng-codex02-tilelang-fa-symbolic-buildonly-20260902t0510z`;
+Docker inspection recorded `Devices=[]`, `DeviceRequests=null`.
 
-- runtime symbolic extents: `B, Sq, Sk, Hq, Hk, D`
-- `D`: 16x7, 24x2, 32x3, 40x2, 48x1, 96x5, 128x30
-- dtype: FP32x17, FP16x17, BF16x16
-- static full-shape baseline: 50 kernels
-- A3 factory-like `(dtype,D,Hq,Hk)` baseline: 37 kernels
-- this PoC: one host dispatcher plus three dtype-keyed kernels
+## Attempt1 review and packaging correction
 
-Rank changes and `D % 8 != 0` remain outside the implemented ABI and are
-fail-closed negative controls. Runtime extent variation within rank 4 is not,
-by itself, a language restriction requiring case-per-kernel cloning.
+Fresh non-author attempt1 review:
+`/work/e287_reviews/bundle_e287677f_b150_attempt1_review/REVIEW.md`, SHA256
+`d68a7f97f5c89d8f260121dad1e08d60a795e32c97952da2149de4719dd2a162`.
+It independently established `A5_BUILD_ABI=PASS`: exact manifest and identity rehash,
+isolated typed symbols and self-bindings under RTLD_NOW, plus a retained cross-binding
+known-bad that failed. Its overall consumer verdict was REJECT because the committed
+BUILD_PROVENANCE claim was stale, attempt1 lacked top-level REPORT and RECEIPT, and its
+manifest differed from the committed claim. This was claims packaging failure, not ABI failure.
 
-## Compiler change
+Attempt2 is an exact copy of immutable attempt1 plus this report and receipt. Core bytes remain:
 
-- `src/target/codegen_ascend.cc`: supports compiler-owned, per-PrimFunc
-  `ascendc_host_entry` and `ascendc_kernel_entry`; the same unique device entry
-  is used in the definition and host launch relocation.
-- `tilelang/jit/adapter/ascendc_dispatch.py`: validates the symbolic contract,
-  groups only by dtype, and emits the checked host dispatcher.
-- `poc/fa_bwd_symbolic_lowering.py`: real TileLang FA-backward DSL with runtime
-  extents and Q/K/V/DY/softmax input consumption plus DQ/DK/DV output writes.
-- `poc/run_fa_bwd_real_lowering.py`: invokes `tilelang.lower`, copies the real
-  compiler output, builds all typed DSOs, links the host DSO, runs symbol and
-  dispatch controls, and emits content-addressed provenance.
-- `tilelang/jit/adapter/ascendc_provenance.py`: records one observation time,
-  source commit/tree/status, top-level and 16 recursive submodules, exact TVM
-  patch, loaded compiler libraries, Bisheng identity, inputs, and artifacts.
-- `poc/verify_fa_bwd_bundle.py`: independent fail-closed consumer for build
-  provenance and manifest closure.
+- BUILD_PROVENANCE.json: `d288a2b950ed29f44176345c3b541b83f0d5a9b6e4a39e2e1ce15bbb31d81bc8`
+- RESULT.json: `c57ae8d2d9311fa415e2a7bd94103b0ff8b6821e158ded4ee1542f354689a27f`
 
-The exact TVM dependency patch is
-`poc/patches/tvm_dynamic_slice_unit_step.patch`, SHA256
-`99a307ad3fa0ea648f26ad15a84c38588241de96cd11740c8f4210e7d81931a8`,
-applied to TVM gitlink `c2921fdaf795b1103d21abc962e83a209c7258d7`.
-It keeps explicit unit-step dynamic slices on TVM's BufferRegion path.
-
-## Card-free A5 build
-
-Build-only container:
-`root@141.61.33.141:zheng-codex02-tilelang-fa-symbolic-buildonly-20260902t0510z`.
-Docker inspection recorded `Devices=[]` and `DeviceRequests=null`.
-
-Compiler/toolchain bindings:
-
-- built with `USE_ASCEND=ON`; `target.build.tilelang_ascend` present
-- `libtilelang_module.so` SHA256 `d05fa79cd5110c03bb399e288e17dfaf3a5b3b1225d06b7204fe8caac3274a2b`
-- `libtvm.so` SHA256 `d8d84f3c63d40462d99a9199b85d8a1ce587da328800d281962585b7e17cfeec`
-- Bisheng B150 SHA256 `8120f5d1fd5cc2df8499f2aa1b301ec7a8126d66bd23226c721de378872a918d`
-- build flags include `--npu-arch=dav-3510 -DCATLASS_ARCH=3510 -std=c++17 -xasc -O2 --shared`
-
-| artifact | source SHA256 | DSO SHA256 |
-|---|---|---|
-| FP16 kernel | `7af413043df3e806c464b079dfbee0d0eb3ad5feb53b4d2d7ce42ea27b480f1a` | `a36dd9071ea4d0d809b5517f8b7658f120298906f059e299cad85a417916daec` |
-| BF16 kernel | `85a99bd0d8f98c9639955e7bc46151d1d5d406ebccb7898a66d3d24cf97626ff` | `bf13c97d9b44fbcd6558350033079d8e1d4a2d568c3183b3cbebb9f93850a7c0` |
-| FP32 kernel | `b07754fc297b0a49ab0db74006ed199c8f07f289a8045fc5d663e25fe6492f3e` | `70aba7215aacbf8c4f35d1c835b0d133d8779b04a1749fbbd35cbdccf23adc48` |
-| host dispatcher | n/a | `c64c5b822b0b5f51c301b56adcef1aec2466fb46f80dfc9e320bba0cfb918ec9` |
-
-The external bundle is:
-
-`root@141.61.33.141:/home/zheng/codex02_tilelang_fa_symbolic_build_20260902T0510Z/provenance_build_fd1be6e5/bundle_43a44017_b150/`
-
-Its `BUILD_PROVENANCE.json`, `RESULT.json`, and `MANIFEST.sha256` hashes are,
-respectively, `7672176343389332d081604a7e235e1b8b84ac303aa63c7b3650b8320fe792cb`,
-`fc54f51f9471d85f86e1b56c384da28bea6c2f8939fcc84b7705e9326371d52e`,
-and `8a7ccbeda3e901a9cbb1033d00ca7aa97b2a606a6712f6a8`.
-
-## Discriminators and tests
-
-- exact provenance regression: `6 passed`
-- real lowering/build command: rc 0
-- host dispatcher routes all 50 rows: PASS
-- rank-change control: REJECTED
-- `D % 8 != 0` control: REJECTED
-- stale-official-head provenance control: REJECTED
-- mutated-artifact provenance control: REJECTED
-- standalone bundle consumer: `PROVENANCE_PASS`, rc 0
-- `sha256sum -c MANIFEST.sha256`: rc 0; 57 rows over 58 bundle files
-- RTLD_NOW host load: PASS without invoking a device wrapper
-- unique-device-symbol verdict: `PASS_UNIQUE_SELF_BINDINGS`
-
-The prior `a5754b8b...` design remains a rejected ancestor because all typed
-DSOs exported `main_kernel` and BF16/FP32 relocations bound to the FP16 DSO.
-In v4, each DSO defines only its typed device entry
-(`fa_bwd_fp16_kernel`, `fa_bwd_bf16_kernel`, or `fa_bwd_fp32_kernel`), generic
-`main_kernel` is absent, and `LD_DEBUG=bindings` proves each wrapper relocation
-binds to its own DSO.
-
-## Independent A5 device gate
-
-After fresh exclusive NPU admission, a non-author consumer must preserve the
-source, three kernel DSOs, host DSO, case manifest, comparator, and toolchain
-bindings, then:
-
-1. run all 50 cases through the one host dispatcher without recompilation;
-2. compare DQ/DK/DV against the bound CPU golden on the fixed denominator;
-3. run an observable same-session known-bad;
-4. prove no shape-specific kernel files or compiler activity appear;
-5. only after precision, measure same-candidate performance against the
-   product reference.
-
-Until that gate passes, the only honest status is
-`AUTHOR_BUILD_PASS / DEVICE_NOT_RUN / PRECISION_NOT_MEASURED / PERF_NOT_MEASURED`.
+MANIFEST.sha256 was rebuilt over every regular package member except itself and checked.
+Author logs are under `/work/e287_transfer/claims_author/`. A new non-author must verify the
+exact evidence commit and package. Device fixed50 DQ/DK/DV, same-session known-bad,
+no-recompile proof, and same-candidate performance remain unrun gates.

@@ -33,7 +33,7 @@
     {
       "bytes": 581448,
       "path": "generated/kernel/fa_bwd_bf16.so",
-      "sha256": "bf13c97d9b44fbcd6558350033079d8e1d4a2d568c3183b3cbebb9f93850a7c0"
+      "sha256": "7a3e947aa0718fd2a539f1eb2c3741701696038401bb70a2623635dcfb8ad58f"
     },
     {
       "bytes": 19335,
@@ -48,7 +48,7 @@
     {
       "bytes": 577408,
       "path": "generated/kernel/fa_bwd_fp16.so",
-      "sha256": "a36dd9071ea4d0d809b5517f8b7658f120298906f059e299cad85a417916daec"
+      "sha256": "fac6d879ab744ef4573f227513bf9c72c1abe7b76d91f12f10b9a648e40dd5b6"
     },
     {
       "bytes": 18744,
@@ -63,7 +63,7 @@
     {
       "bytes": 575432,
       "path": "generated/kernel/fa_bwd_fp32.so",
-      "sha256": "70aba7215aacbf8c4f35d1c835b0d133d8779b04a1749fbbd35cbdccf23adc48"
+      "sha256": "b82ac98ce5ca5d3a90b5075d172e8dc4f9b8011cdce489e96afc80469da35337"
     },
     {
       "bytes": 15400,
@@ -81,7 +81,7 @@
     {
       "actual_head": "c2921fdaf795b1103d21abc962e83a209c7258d7",
       "gitlink": "c2921fdaf795b1103d21abc962e83a209c7258d7",
-      "patch": "provenance/tvm_dynamic_slice_unit_step.patch",
+      "patch": "provenance/dependencies/tvm_dynamic_slice_unit_step.patch",
       "patch_sha256": "99a307ad3fa0ea648f26ad15a84c38588241de96cd11740c8f4210e7d81931a8",
       "path": "3rdparty/tvm",
       "recursive_submodules": [
@@ -110,10 +110,28 @@
   "device_execution": "NOT_RUN_NO_NPU_ADMISSION",
   "inputs": [
     {
+      "bytes": 38448,
+      "name": "op29_fixed50_json",
+      "path": "provenance/inputs/op29_fixed50_json",
+      "sha256": "63b545dd67682935c51910b42c4324c4d375559aff12b44b469c1aaecd97c253"
+    },
+    {
       "bytes": 3010,
-      "name": "fa_bwd_fixed50_cases.csv",
-      "path": "provenance/inputs/fa_bwd_fixed50_cases.csv",
+      "name": "op29_fixed50_shapes_csv",
+      "path": "provenance/inputs/op29_fixed50_shapes_csv",
       "sha256": "6cb3fef12299b661ec01923e5216f135aa5be0fbe97abb5aad60f21684efd889"
+    },
+    {
+      "bytes": 1587,
+      "name": "op29_operator_source",
+      "path": "provenance/inputs/op29_operator_source",
+      "sha256": "2d714ce7a96c13a632c4548b0c8bd2f3af4b987873488230ae079b74c4b541e7"
+    },
+    {
+      "bytes": 7951,
+      "name": "op29_reference_model",
+      "path": "provenance/inputs/op29_reference_model",
+      "sha256": "71a29698c475bb66844308eb96429fe8300f2fd6bacfb32a3f5c338038e72793"
     }
   ],
   "loaded_compiler": {
@@ -131,20 +149,20 @@
   "schema_version": 1,
   "source_observation": {
     "colleague_a3_head": "b0dcbf42fbc4ce7e28d594b50b3dba8a7b29e093",
-    "observed_at_utc": "2026-09-02T17:06:28Z",
+    "observed_at_utc": "2026-09-03T00:16:45Z",
     "official_head": "01e7254dc51685fd77f41e5807c42e6537e17645",
     "path": "provenance/SOURCE_OBSERVATION.json",
-    "sha256": "330fbcb57947154dd6382ebeed7ebe0a5ef3ee78353e4e6be0f6b634764896ef"
+    "sha256": "033a023a3b4faf5e2147a7023101759b369e409b02dc25a5c2599c4f28af73b3"
   },
   "source_repo": {
     "branch": "DETACHED",
-    "commit": "43a44017deec4698c30631ec125ab044294b8332",
-    "origin": "https://github.com/tile-ai/tilelang-ascend.git",
-    "path_diagnostic_only": "/work/provenance_repo_fd1be6e5",
+    "commit": "e287677f3e328cd190181edf443f855983af574a",
+    "origin": "/work/repo",
+    "path_diagnostic_only": "/work/e287_source",
     "status": [
       " M 3rdparty/tvm"
     ],
-    "tree": "372f2550fe1ba3a760763c6adbca30cefb76d67a"
+    "tree": "33ca51941324468e785c81297619501ebdf06739"
   },
   "target": {
     "backend": "ascendc",
@@ -157,6 +175,6 @@
     "path": "/data/pri/Ascend/9.1.0.B150/cann-9.1.0/tools/bisheng_compiler/bin/bisheng",
     "sha256": "8120f5d1fd5cc2df8499f2aa1b301ec7a8126d66bd23226c721de378872a918d",
     "version": "2026-08-26 09:08:02 +0000 Baize clang version 15.0.5 (clang-54f07e84a6f7 flang-54f07e84a6f7)\nTarget: x86_64-unknown-linux-gnu\nThread model: posix\nInstalledDir: /data/pri/Ascend/9.1.0.B150/cann-9.1.0/tools/bisheng_compiler/bin",
-    "version_sha256": "4a2ef66d1df182dea749b65f709026b5d37ad9401f97d123dd5041ce0cc1aacc"
+    "version_sha256": "8881c39e7198ced7ff664879948f756241ce69f2c41ea9083c8417ded3ed3f9b"
   }
 }
