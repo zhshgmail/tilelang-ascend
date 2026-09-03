@@ -20,6 +20,9 @@ from poc.run_fa_bwd_real_lowering import (
 )
 
 
+FA_BWD_DSL = Path(__file__).with_name("fa_bwd_symbolic_lowering.py")
+
+
 def _entry_names(dtype: str) -> tuple[str, str]:
     return f"host_fa_bwd_{dtype}", f"kernel_fa_bwd_{dtype}"
 
@@ -448,6 +451,19 @@ def test_a5_source_rejects_illegal_pipe_all_barrier() -> None:
     )
     with pytest.raises(AssertionError, match="illegal A5 PIPE_ALL"):
         validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
+def test_dsl_declares_bidirectional_output_dma_fences() -> None:
+    source = FA_BWD_DSL.read_text(encoding="utf-8")
+    for event_id in (1, 3, 5):
+        assert source.count(f'T.set_flag("S", "MTE3", {event_id})') == 1
+        assert source.count(f'T.wait_flag("S", "MTE3", {event_id})') == 1
+        assert source.count(f'T.set_flag("MTE3", "S", {event_id})') == 1
+        assert source.count(f'T.wait_flag("MTE3", "S", {event_id})') == 1
+        assert source.count(f'T.set_flag("V", "MTE3", {event_id})') == 1
+        assert source.count(f'T.wait_flag("V", "MTE3", {event_id})') == 1
+        assert source.count(f'T.set_flag("MTE3", "V", {event_id})') == 1
+        assert source.count(f'T.wait_flag("MTE3", "V", {event_id})') == 1
 
 
 @pytest.mark.parametrize(

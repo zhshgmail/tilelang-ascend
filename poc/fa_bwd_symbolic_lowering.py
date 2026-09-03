@@ -367,18 +367,26 @@ def make_fa_bwd_scalar(dtype: str, host_entry: str, kernel_entry: str):
                                 acc_tile[lane] = scratch[0]
 
                         if dtype == "float32":
+                            T.set_flag("S", "MTE3", 1)
+                            T.wait_flag("S", "MTE3", 1)
                             T.copy(
                                 acc_tile[0:valid],
                                 dq_flat[tile_start : tile_start + valid],
                             )
+                            T.set_flag("MTE3", "S", 1)
+                            T.wait_flag("MTE3", "S", 1)
                         else:
                             T.tile.cast(
                                 out_tile, acc_tile, "CAST_RINT", TILE_ELEMS
                             )
+                            T.set_flag("V", "MTE3", 1)
+                            T.wait_flag("V", "MTE3", 1)
                             T.copy(
                                 out_tile[0:valid],
                                 dq_flat[tile_start : tile_start + valid],
                             )
+                            T.set_flag("MTE3", "V", 1)
+                            T.wait_flag("MTE3", "V", 1)
 
                 # DK: preserve group -> Sq -> D reduction order per lane.
                 dk_tiles = T.ceildiv(kv_elements, TILE_ELEMS)
@@ -618,18 +626,26 @@ def make_fa_bwd_scalar(dtype: str, host_entry: str, kernel_entry: str):
                                 acc_tile[lane] = scratch[0]
 
                         if dtype == "float32":
+                            T.set_flag("S", "MTE3", 3)
+                            T.wait_flag("S", "MTE3", 3)
                             T.copy(
                                 acc_tile[0:valid],
                                 dk_flat[tile_start : tile_start + valid],
                             )
+                            T.set_flag("MTE3", "S", 3)
+                            T.wait_flag("MTE3", "S", 3)
                         else:
                             T.tile.cast(
                                 out_tile, acc_tile, "CAST_RINT", TILE_ELEMS
                             )
+                            T.set_flag("V", "MTE3", 3)
+                            T.wait_flag("V", "MTE3", 3)
                             T.copy(
                                 out_tile[0:valid],
                                 dk_flat[tile_start : tile_start + valid],
                             )
+                            T.set_flag("MTE3", "V", 3)
+                            T.wait_flag("MTE3", "V", 3)
 
                 # DV: preserve group -> Sq -> D score reduction order per lane.
                 dv_tiles = T.ceildiv(kv_elements, TILE_ELEMS)
@@ -792,18 +808,26 @@ def make_fa_bwd_scalar(dtype: str, host_entry: str, kernel_entry: str):
                                 acc_tile[lane] = scratch[0]
 
                         if dtype == "float32":
+                            T.set_flag("S", "MTE3", 5)
+                            T.wait_flag("S", "MTE3", 5)
                             T.copy(
                                 acc_tile[0:valid],
                                 dv_flat[tile_start : tile_start + valid],
                             )
+                            T.set_flag("MTE3", "S", 5)
+                            T.wait_flag("MTE3", "S", 5)
                         else:
                             T.tile.cast(
                                 out_tile, acc_tile, "CAST_RINT", TILE_ELEMS
                             )
+                            T.set_flag("V", "MTE3", 5)
+                            T.wait_flag("V", "MTE3", 5)
                             T.copy(
                                 out_tile[0:valid],
                                 dv_flat[tile_start : tile_start + valid],
                             )
+                            T.set_flag("MTE3", "V", 5)
+                            T.wait_flag("MTE3", "V", 5)
 
     return main.with_attr("ascendc_host_entry", host_entry).with_attr(
         "ascendc_kernel_entry", kernel_entry
