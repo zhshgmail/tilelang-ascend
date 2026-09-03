@@ -64,6 +64,24 @@ CATLASS_DEVICE void disable_dma_atomic_compat() {
 #endif
 }
 
+CATLASS_DEVICE void pipe_barrier_all_compat() {
+#if CATLASS_ARCH == 3510
+  // CANN 9.2 Bisheng rejects pipe_barrier(PIPE_ALL) for DAV3510 when
+  // --cce-auto-sync=off is active.  Drain every asynchronous execution pipe
+  // explicitly instead.  PipeBarrierInternal routes each operation only to
+  // the AIV/AIC core type that owns that pipe, so this remains valid for MIX
+  // kernels without introducing event IDs that could collide with callers.
+  AscendC::PipeBarrier<PIPE_V>();
+  AscendC::PipeBarrier<PIPE_MTE2>();
+  AscendC::PipeBarrier<PIPE_MTE3>();
+  AscendC::PipeBarrier<PIPE_MTE1>();
+  AscendC::PipeBarrier<PIPE_M>();
+  AscendC::PipeBarrier<PIPE_FIX>();
+#else
+  AscendC::PipeBarrier<PIPE_ALL>();
+#endif
+}
+
 template <typename T, uint32_t dstM, uint32_t dstN>
 CATLASS_DEVICE void
 copy_gm_to_l1(LocalTensor<T> dstTensor, GlobalTensor<T> srcTensor,
@@ -988,7 +1006,7 @@ tail_compare(LocalTensor<uint8_t> dst, LocalTensor<T> src0, LocalTensor<T> src1,
     return;
   constexpr uint32_t maskRowStride = 32;
   dst.SetSize(physRow * maskRowStride);
-  AscendC::PipeBarrier<PIPE_ALL>();
+  pipe_barrier_all_compat();
   for (uint32_t r = 0; r < validRow; ++r) {
     for (uint32_t byte = 0; byte < (validCol + 7U) / 8U; ++byte) {
       uint8_t packed = 0;
@@ -1003,7 +1021,7 @@ tail_compare(LocalTensor<uint8_t> dst, LocalTensor<T> src0, LocalTensor<T> src1,
       dst.SetValue(r * maskRowStride + byte, packed);
     }
   }
-  AscendC::PipeBarrier<PIPE_ALL>();
+  pipe_barrier_all_compat();
 }
 
 template <typename T>
@@ -1016,7 +1034,7 @@ tail_compare_scalar(LocalTensor<uint8_t> dst, LocalTensor<T> src, T scalar,
     return;
   constexpr uint32_t maskRowStride = 32;
   dst.SetSize(physRow * maskRowStride);
-  AscendC::PipeBarrier<PIPE_ALL>();
+  pipe_barrier_all_compat();
   for (uint32_t r = 0; r < validRow; ++r) {
     for (uint32_t byte = 0; byte < (validCol + 7U) / 8U; ++byte) {
       uint8_t packed = 0;
@@ -1030,7 +1048,7 @@ tail_compare_scalar(LocalTensor<uint8_t> dst, LocalTensor<T> src, T scalar,
       dst.SetValue(r * maskRowStride + byte, packed);
     }
   }
-  AscendC::PipeBarrier<PIPE_ALL>();
+  pipe_barrier_all_compat();
 }
 
 template <typename T>
@@ -1044,7 +1062,7 @@ tail_select(LocalTensor<T> dst, LocalTensor<uint8_t> selMask,
     return;
   constexpr uint32_t maskRowStride = 32;
   selMask.SetSize(physRow * maskRowStride);
-  AscendC::PipeBarrier<PIPE_ALL>();
+  pipe_barrier_all_compat();
   for (uint32_t r = 0; r < validRow; ++r) {
     for (uint32_t c = 0; c < validCol; ++c) {
       uint8_t packed = selMask.GetValue(r * maskRowStride + c / 8U);
@@ -1054,7 +1072,7 @@ tail_select(LocalTensor<T> dst, LocalTensor<uint8_t> selMask,
                    take_src0 ? src0.GetValue(index) : src1.GetValue(index));
     }
   }
-  AscendC::PipeBarrier<PIPE_ALL>();
+  pipe_barrier_all_compat();
 }
 
 template <typename T>
@@ -1068,7 +1086,7 @@ tail_select_scalar(LocalTensor<T> dst, LocalTensor<uint8_t> selMask,
     return;
   constexpr uint32_t maskRowStride = 32;
   selMask.SetSize(physRow * maskRowStride);
-  AscendC::PipeBarrier<PIPE_ALL>();
+  pipe_barrier_all_compat();
   for (uint32_t r = 0; r < validRow; ++r) {
     for (uint32_t c = 0; c < validCol; ++c) {
       uint8_t packed = selMask.GetValue(r * maskRowStride + c / 8U);
@@ -1077,7 +1095,7 @@ tail_select_scalar(LocalTensor<T> dst, LocalTensor<uint8_t> selMask,
       dst.SetValue(index, take_src ? src.GetValue(index) : scalar);
     }
   }
-  AscendC::PipeBarrier<PIPE_ALL>();
+  pipe_barrier_all_compat();
 }
 
 // ---- broadcast -----------------------------------------------------------
@@ -1093,7 +1111,7 @@ tail_broadcast(LocalTensor<T> dst, LocalTensor<T> src, int axis,
     constexpr uint32_t elemsPerBlock = 32 / sizeof(T);
     uint32_t srcRowStride =
         ((srcPhysCol + elemsPerBlock - 1) / elemsPerBlock) * elemsPerBlock;
-    AscendC::PipeBarrier<PIPE_ALL>();
+    pipe_barrier_all_compat();
     for (uint32_t r = 0; r < rows; ++r) {
       T scalar = src.GetValue(r * srcRowStride);
       // Keep both full and tail rows on the vector path.  SetValue is a
@@ -1103,7 +1121,7 @@ tail_broadcast(LocalTensor<T> dst, LocalTensor<T> src, int axis,
       AscendC::Duplicate(dst[r * dstPhysCol], scalar,
                          static_cast<int32_t>(validCol));
     }
-    AscendC::PipeBarrier<PIPE_ALL>();
+    pipe_barrier_all_compat();
     return;
   }
   uint32_t cols = validCol < srcValidCol ? validCol : srcValidCol;
@@ -1585,7 +1603,7 @@ CATLASS_DEVICE void gemmL1(LocalTensor<T1> A, LocalTensor<T1> B,
       AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(0);
       AscendC::WaitFlag<AscendC::HardEvent::M_MTE2>(0);
     }
-    AscendC::PipeBarrier<PIPE_ALL>();
+    pipe_barrier_all_compat();
   }
 }
 
