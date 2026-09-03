@@ -249,6 +249,12 @@ def make_fa_bwd_scalar(dtype: str, host_entry: str, kernel_entry: str):
                                                 attention_ub[0:rd_valid],
                                             )
                                             if dtype == "bfloat16":
+                                                # The VS-only dependency pass does not
+                                                # cover MTE2 -> V.  Bisheng auto-sync is
+                                                # disabled for this product, so bind the
+                                                # BF16 widening to its input DMA here.
+                                                T.set_flag("MTE2", "V", 0)
+                                                T.wait_flag("MTE2", "V", 0)
                                                 T.tile.cast(
                                                     q_f32_ub,
                                                     q_ub,
@@ -502,6 +508,8 @@ def make_fa_bwd_scalar(dtype: str, host_entry: str, kernel_entry: str):
                                                     attention_ub[0:rd_valid],
                                                 )
                                                 if dtype == "bfloat16":
+                                                    T.set_flag("MTE2", "V", 2)
+                                                    T.wait_flag("MTE2", "V", 2)
                                                     T.tile.cast(
                                                         q_f32_ub,
                                                         q_ub,
@@ -741,6 +749,8 @@ def make_fa_bwd_scalar(dtype: str, host_entry: str, kernel_entry: str):
                                                     dy_ub[0:rd_valid],
                                                 )
                                                 if dtype == "bfloat16":
+                                                    T.set_flag("MTE2", "V", 4)
+                                                    T.wait_flag("MTE2", "V", 4)
                                                     T.tile.cast(
                                                         q_f32_ub,
                                                         q_ub,

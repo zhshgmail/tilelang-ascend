@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import ctypes
 import dataclasses
 import hashlib
@@ -79,6 +80,14 @@ INPUT_COPY_CONTRACT = {
     "sum_flat": ("sum_ub", 3),
     "attention_flat": ("attention_ub", 2),
 }
+BF16_INPUT_WIDENING_CASTS = {
+    "q_f32_ub": ("q_ub", 3),
+    "k_f32_ub": ("k_ub", 3),
+    "dy_f32_ub": ("dy_ub", 3),
+    "v_f32_ub": ("v_ub", 2),
+    "attention_f32_ub": ("attention_ub", 2),
+}
+BF16_INPUT_WIDENING_CLUSTER_WIDTHS = (5, 5, 3)
 
 
 _RAW_STRING_PREFIX = re.compile(
@@ -311,6 +320,39 @@ def _has_bound_output_sync(source: str) -> bool:
     }
     return bool(set_events) and set_events == wait_events and all(
         event.endswith("_MTE3") for event, _ in set_events
+    )
+
+
+def _bound_sync_suffix(source: str) -> str:
+    """Return the sync-only suffix immediately preceding one instruction."""
+
+    call = (
+        r"AscendC::(?:SetFlag|WaitFlag)\s*<\s*"
+        r"AscendC::HardEvent::[A-Z0-9_]+\s*>\s*\(\s*\d+\s*\)\s*;"
+    )
+    match = re.search(rf"(?P<suffix>(?:\s*{call})+\s*)$", source)
+    return "" if match is None else match.group("suffix")
+
+
+def _has_paired_event(source: str, required_event: str) -> bool:
+    """Accept a sync-only block containing one paired required event."""
+
+    pattern = re.compile(
+        r"AscendC::(?P<op>SetFlag|WaitFlag)\s*<\s*"
+        r"AscendC::HardEvent::(?P<event>[A-Z0-9_]+)\s*>\s*"
+        r"\(\s*(?P<event_id>\d+)\s*\)\s*;"
+    )
+    calls = pattern.findall(source)
+    if not calls or pattern.sub("", source).strip():
+        return False
+    set_events = Counter(
+        (event, event_id) for op, event, event_id in calls if op == "SetFlag"
+    )
+    wait_events = Counter(
+        (event, event_id) for op, event, event_id in calls if op == "WaitFlag"
+    )
+    return set_events == wait_events and any(
+        event == required_event for event, _ in set_events.keys()
     )
 
 
@@ -598,9 +640,76 @@ def validate_real_source(
         )
 
     cast_pattern = re.compile(r"\bAscendC::Cast\s*\((.*?)\)\s*;", re.DOTALL)
+    all_casts = [
+        (match, _split_top_level_arguments(match.group(1)))
+        for match in cast_pattern.finditer(executable)
+    ]
+    widening_casts = []
+    for match, arguments in all_casts:
+        if not arguments:
+            continue
+        destination = re.fullmatch(r"([A-Za-z_]\w*)\s*\[\s*0\s*\]", arguments[0])
+        if destination is None or destination.group(1) not in BF16_INPUT_WIDENING_CASTS:
+            continue
+        widening_casts.append((match, arguments))
+
+    widening_clusters = []
+    for match, arguments in widening_casts:
+        if (
+            widening_clusters
+            and not executable[
+                widening_clusters[-1][-1][0].end() : match.start()
+            ].strip()
+        ):
+            widening_clusters[-1].append((match, arguments))
+        else:
+            widening_clusters.append([(match, arguments)])
+
+    if dtype == "bfloat16":
+        widening_counts = {name: 0 for name in BF16_INPUT_WIDENING_CASTS}
+        for _, arguments in widening_casts:
+            normalized = [re.sub(r"\s+", "", argument) for argument in arguments]
+            destination_name = normalized[0].removesuffix("[0]")
+            source_name, _ = BF16_INPUT_WIDENING_CASTS[destination_name]
+            if normalized != [
+                f"{destination_name}[0]",
+                f"{source_name}[0]",
+                "AscendC::RoundMode::CAST_NONE",
+                "32",
+            ]:
+                raise AssertionError(
+                    f"{dtype}: invalid BF16 input widening cast: {arguments}"
+                )
+            widening_counts[destination_name] += 1
+        expected_widening_counts = {
+            name: count for name, (_, count) in BF16_INPUT_WIDENING_CASTS.items()
+        }
+        if widening_counts != expected_widening_counts:
+            raise AssertionError(
+                f"{dtype}: wrong BF16 input widening multiplicities: "
+                f"expected={expected_widening_counts}, got={widening_counts}"
+            )
+        cluster_widths = tuple(len(cluster) for cluster in widening_clusters)
+        if cluster_widths != BF16_INPUT_WIDENING_CLUSTER_WIDTHS:
+            raise AssertionError(
+                f"{dtype}: wrong BF16 input widening clusters: "
+                f"expected={BF16_INPUT_WIDENING_CLUSTER_WIDTHS}, got={cluster_widths}"
+            )
+        for cluster_index, cluster in enumerate(widening_clusters):
+            first_cast = cluster[0][0]
+            sync_suffix = _bound_sync_suffix(executable[: first_cast.start()])
+            if not _has_paired_event(sync_suffix, "MTE2_V"):
+                raise AssertionError(
+                    f"{dtype}: BF16 input widening cluster {cluster_index} lacks "
+                    "a bound MTE2_V event pair"
+                )
+    elif widening_casts:
+        raise AssertionError(
+            f"{dtype}: BF16-only input widening casts leaked into another variant"
+        )
+
     parsed_casts = []
-    for match in cast_pattern.finditer(executable):
-        arguments = _split_top_level_arguments(match.group(1))
+    for match, arguments in all_casts:
         if arguments and re.fullmatch(r"out_tile\s*\[.*\]", arguments[0]):
             parsed_casts.append((match, arguments))
     output_cast_occurrences = len(
@@ -713,6 +822,10 @@ def validate_real_source(
         "legacy_global_scalar_pattern_absent": list(LEGACY_GLOBAL_SCALAR_TOKENS),
         "cast_rint_count": len(parsed_casts),
         "cast_bound_outputs": cast_bound_outputs,
+        "bf16_input_widening_cast_count": len(widening_casts),
+        "bf16_input_widening_cluster_widths": [
+            len(cluster) for cluster in widening_clusters
+        ],
         "lexical_comments_and_literals_stripped": True,
         "per_output_accumulator_resets": 3,
         "lifted_scalar_accumulators_absent": True,

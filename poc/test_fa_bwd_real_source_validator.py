@@ -63,6 +63,23 @@ def _valid_source(dtype: str) -> str:
                 f"tl::ascend::copy_gm_to_ub<{buffer_type}, {width}>("
                 f"{destination_name}[0], {buffer_name}[0], 32, 1, {width}, 0);"
             )
+    if dtype == "bfloat16":
+        for event_id, names in (
+            (0, ("q", "k", "dy", "v", "attention")),
+            (2, ("q", "k", "dy", "v", "attention")),
+            (4, ("q", "k", "dy")),
+        ):
+            lines.extend(
+                [
+                    f"AscendC::SetFlag<AscendC::HardEvent::MTE2_V>({event_id});",
+                    f"AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>({event_id});",
+                ]
+            )
+            for name in names:
+                lines.append(
+                    f"AscendC::Cast({name}_f32_ub[0], {name}_ub[0], "
+                    "AscendC::RoundMode::CAST_NONE, 32);"
+                )
     lines.extend(
         [
             "AscendC::SetFlag<AscendC::HardEvent::MTE2_S>(0);",
@@ -116,6 +133,32 @@ def test_valid_owned_tile_contract_is_accepted(dtype: str) -> None:
         name: count for name, (_, count) in INPUT_COPY_CONTRACT.items()
     }
     assert result["cast_rint_count"] == (0 if dtype == "float32" else 3)
+    assert result["bf16_input_widening_cast_count"] == (
+        13 if dtype == "bfloat16" else 0
+    )
+
+
+def test_bf16_widening_cluster_requires_bound_mte2_v_pair() -> None:
+    dtype = "bfloat16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    known_bad = _valid_source(dtype).replace(
+        "AscendC::HardEvent::MTE2_V>(0)",
+        "AscendC::HardEvent::S_V>(0)",
+    )
+    with pytest.raises(AssertionError, match="cluster 0 lacks a bound MTE2_V"):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
+
+
+def test_bf16_widening_cluster_rejects_unpaired_mte2_v() -> None:
+    dtype = "bfloat16"
+    host_entry, kernel_entry = _entry_names(dtype)
+    known_bad = _valid_source(dtype).replace(
+        "AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(0);",
+        "",
+        1,
+    )
+    with pytest.raises(AssertionError, match="cluster 0 lacks a bound MTE2_V"):
+        validate_real_source(known_bad, host_entry, kernel_entry, dtype)
 
 
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16", "float32"])
@@ -153,6 +196,22 @@ def test_exact_attempt2_source_is_accepted_with_real_plan_entries(dtype: str) ->
     assert result["flat_input_copy_multiplicities"] == {
         name: count for name, (_, count) in INPUT_COPY_CONTRACT.items()
     }
+
+
+def test_exact_c546_bf16_source_is_rejected_without_mte2_v() -> None:
+    retained_root_value = os.environ.get("TILELANG_FA_BWD_KNOWN_BAD_C546_SOURCE_DIR")
+    if retained_root_value is None:
+        pytest.skip("set TILELANG_FA_BWD_KNOWN_BAD_C546_SOURCE_DIR for c546 red gate")
+    source = (Path(retained_root_value) / "fa_bwd_bf16.cpp").read_text(
+        encoding="utf-8"
+    )
+    with pytest.raises(AssertionError, match="cluster 0 lacks a bound MTE2_V"):
+        validate_real_source(
+            source,
+            "call_fa_bwd_bf16",
+            "fa_bwd_bf16_kernel",
+            "bfloat16",
+        )
 
 
 def test_injected_flat_global_read_and_write_are_rejected() -> None:
@@ -478,6 +537,15 @@ def test_dsl_declares_bidirectional_output_dma_fences() -> None:
         assert source.count(f'T.wait_flag("V", "MTE3", {event_id})') == 1
         assert source.count(f'T.set_flag("MTE3", "V", {event_id})') == 1
         assert source.count(f'T.wait_flag("MTE3", "V", {event_id})') == 1
+
+
+def test_dsl_declares_bf16_mte2_to_vector_input_fences() -> None:
+    """Each BF16 widening cluster must wait for its GM-to-UB DMA."""
+
+    source = FA_BWD_DSL.read_text(encoding="utf-8")
+    for event_id in (0, 2, 4):
+        assert source.count(f'T.set_flag("MTE2", "V", {event_id})') == 1
+        assert source.count(f'T.wait_flag("MTE2", "V", {event_id})') == 1
 
 
 @pytest.mark.parametrize(
