@@ -1,6 +1,6 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
-"""Byte-addressed A2/A3 functional memory model."""
+"""Byte-addressed Ascend functional memory model."""
 
 from dataclasses import dataclass
 from itertools import product
@@ -17,17 +17,21 @@ from .errors import (
 )
 from .hazard import HazardDiagnostic, HazardReporter
 from .program import BufferSpec, KernelProgram, MemoryScope
+from .profile import get_device_profile, normalize_platform
 
 
-# Values used by the A2/A3 host codegen and memory-planning pass.
-A2_A3_LOCAL_CAPACITIES: Mapping[MemoryScope, int] = {
-    MemoryScope.L1: 524032,
-    MemoryScope.L0A: 65536,
-    MemoryScope.L0B: 65536,
-    MemoryScope.L0C: 131072,
-    MemoryScope.UB: 196352,
-    MemoryScope.BT: 1024,
-}
+def _local_capacities_for_platform(platform: str) -> Mapping[MemoryScope, int]:
+    profile = get_device_profile(platform)
+    return {
+        MemoryScope[scope]: size
+        for scope, size in profile.local_memory_bytes.items()
+    }
+
+
+# Public compatibility aliases.  New code should select by platform through
+# ``MemoryRuntime(..., platform=...)`` or ``MemoryRuntime.from_program``.
+A2_A3_LOCAL_CAPACITIES = _local_capacities_for_platform("A2")
+A5_DAV3510_LOCAL_CAPACITIES = _local_capacities_for_platform("A5")
 _SHARED_SCOPES = frozenset({MemoryScope.GM, MemoryScope.WORKSPACE})
 _DTYPE_PATTERN = re.compile(r"^(?:u?int|float|bfloat)(\d+)(?:x(\d+))?$")
 
@@ -258,6 +262,7 @@ class MemoryRuntime:
         self,
         core_ids: Iterable[int],
         *,
+        platform: str = "A2",
         hazard_check: str = "error",
         local_capacities: Optional[Mapping[MemoryScope, int]] = None,
     ) -> None:
@@ -265,8 +270,14 @@ class MemoryRuntime:
         if any(core_id < 0 for core_id in ids):
             raise ProgramValidationError("core IDs must not be negative")
         self.core_ids = ids
+        self.platform = normalize_platform(platform)
         self.reporter = HazardReporter(hazard_check)
-        self.local_capacities = dict(local_capacities or A2_A3_LOCAL_CAPACITIES)
+        selected_capacities = (
+            _local_capacities_for_platform(self.platform)
+            if local_capacities is None
+            else local_capacities
+        )
+        self.local_capacities = dict(selected_capacities)
         self._allocations: Dict[Tuple[MemoryScope, Optional[int], str], MemoryAllocation] = {}
         self._next_address: Dict[Tuple[MemoryScope, Optional[int]], int] = {}
         self._address_spaces: Dict[Tuple[MemoryScope, Optional[int]], _AddressSpace] = {}
@@ -276,7 +287,11 @@ class MemoryRuntime:
         cls, program: KernelProgram, *, hazard_check: str = "error"
     ) -> "MemoryRuntime":
         """Instantiate program buffers according to their sharing scope."""
-        runtime = cls((core.core_id for core in program.cores), hazard_check=hazard_check)
+        runtime = cls(
+            (core.core_id for core in program.cores),
+            platform=program.platform,
+            hazard_check=hazard_check,
+        )
         for spec in program.buffers:
             if spec.scope in _SHARED_SCOPES:
                 runtime.allocate(spec)

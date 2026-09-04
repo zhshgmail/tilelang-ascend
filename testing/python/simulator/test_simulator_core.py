@@ -39,9 +39,28 @@ def test_config_selects_a2_a3_profile(platform: str) -> None:
     assert config.timing_profile.calibration == "uncalibrated-unit-cost"
 
 
+def test_config_selects_typed_a5_dav3510_profile() -> None:
+    config = SimulatorConfig(platform=" a5 ")
+
+    assert config.platform == "A5"
+    assert config.device_profile.cube_core_count is None
+    assert config.device_profile.vector_core_count is None
+    assert config.device_profile.requires_runtime_core_counts is True
+    assert config.device_profile.local_memory_bytes == {
+        "L1": 524288,
+        "L0A": 65536,
+        "L0B": 65536,
+        "L0C": 262144,
+        "UB": 253952,
+        "BT": 4096,
+    }
+    assert config.device_profile.calibration == "uncalibrated"
+    assert config.timing_profile.calibration == "uncalibrated-unit-cost"
+
+
 def test_config_rejects_unsupported_platform_and_mismatched_timing() -> None:
-    with pytest.raises(SimulatorConfigError, match="supported platforms: A2, A3"):
-        SimulatorConfig(platform="A5")
+    with pytest.raises(SimulatorConfigError, match="supported platforms: A2, A3, A5"):
+        SimulatorConfig(platform="A6")
 
     a3_timing = TimingProfile(platform="A3", operation_cycles={"mma": 7})
     with pytest.raises(SimulatorConfigError, match="does not match"):

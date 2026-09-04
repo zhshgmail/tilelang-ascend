@@ -32,7 +32,7 @@ class MemoryBoundsError(MemoryAccessError, IndexError):
 
 
 class MemoryCapacityError(MemoryAccessError):
-    """Raised when local-memory allocations exceed an A2/A3 scope capacity."""
+    """Raised when local-memory allocations exceed the selected platform capacity."""
 
 
 class MemoryHazardError(MemoryAccessError):
@@ -64,7 +64,7 @@ def reject_shmem(scope: str) -> None:
     normalized = scope.strip().lower()
     if normalized in {"shmem", "shared.shmem", "shared_memory"}:
         raise UnsupportedMemoryScopeError(
-            "Ascend shmem is intentionally unsupported by the A2/A3 simulator"
+            "Ascend shmem is intentionally unsupported by the CPU simulator"
         )
 
 
@@ -74,5 +74,5 @@ def reject_shmem_operation(operation: str) -> None:
     if "shmem_" in normalized or "ascend_shmem" in normalized:
         raise UnsupportedSimOpError(
             f"Ascend shmem operation {operation!r} is intentionally unsupported by the "
-            "A2/A3 simulator"
+            "CPU simulator"
         )

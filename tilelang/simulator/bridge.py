@@ -33,6 +33,21 @@ _VECTOR_OPS = frozenset({
     "sum_experiment",
 })
 
+# DAV3510 features which are not yet modeled by the P0 static adapter.  They
+# must not inherit a C220 classification by substring accident.  Add support
+# only together with an explicit A5 semantic implementation and differential
+# tests against the device.
+_A5_UNMODELED_OPERATION_MARKERS = (
+    "buffer_id",
+    "ccu",
+    "kfc",
+    "mbarrier",
+    "nddma",
+    "regbase",
+    "simt",
+    "ssbuffer",
+)
+
 
 @dataclass(frozen=True)
 class _Context:
@@ -46,8 +61,16 @@ class _Context:
             object.__setattr__(self, "environment", {})
 
 
-def classify_operation(operation: str, lane: Lane) -> Tuple[Lane, Pipe, str]:
-    """Map one lowered operation name to the A2/A3 execution resource."""
+def classify_operation(
+    operation: str, lane: Lane, *, platform: Optional[str] = None
+) -> Tuple[Lane, Pipe, str]:
+    """Map one lowered operation to a modeled execution resource.
+
+    ``platform`` is optional for compatibility with the original A2/A3
+    classifier.  When it is supplied, platform-specific semantics fail closed
+    instead of being guessed from a C220 operation with a similar name.
+    """
+    normalized_platform = normalize_platform(platform) if platform is not None else None
     normalized = operation.strip().lower()
     short = normalized
     for prefix in ("tl.ascend_", "tl::ascend::", "ascendc::"):
@@ -56,6 +79,14 @@ def classify_operation(operation: str, lane: Lane) -> Tuple[Lane, Pipe, str]:
             break
     if short == "tl.arith_progression":
         short = "arith_progression"
+
+    if normalized_platform == "A5" and any(
+        marker in short for marker in _A5_UNMODELED_OPERATION_MARKERS
+    ):
+        raise UnsupportedSimOpError(
+            f"unsupported A5 simulator semantic: {operation!r}; "
+            "DAV3510 semantics are not modeled"
+        )
 
     if "shmem" in short:
         raise UnsupportedSimOpError(
@@ -91,7 +122,12 @@ def classify_operation(operation: str, lane: Lane) -> Tuple[Lane, Pipe, str]:
         return lane, Pipe.SCALAR, short
     if normalized == "buffer_store":
         return _vector_lane(lane), Pipe.VECTOR, normalized
-    raise UnsupportedSimOpError(f"unsupported lowered simulator operation: {operation!r}")
+    platform_suffix = (
+        f"; platform={normalized_platform}" if normalized_platform is not None else ""
+    )
+    raise UnsupportedSimOpError(
+        f"unsupported lowered simulator operation: {operation!r}{platform_suffix}"
+    )
 
 
 def _vector_lane(lane: Lane) -> Lane:
@@ -346,7 +382,9 @@ class _TirBridge:
         self, operation: str, context: _Context, *, metadata: Mapping[str, Any]
     ) -> None:
         try:
-            lane, pipe, normalized = classify_operation(operation, context.lane)
+            lane, pipe, normalized = classify_operation(
+                operation, context.lane, platform=self.platform
+            )
         except UnsupportedSimOpError as error:
             span = metadata.get("span", "unknown")
             raise UnsupportedSimOpError(

@@ -1,6 +1,6 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
-"""CPU-only simulator foundations for TileLang Ascend A2/A3."""
+"""CPU-only simulator foundations for TileLang Ascend."""
 
 from .config import SimulatorConfig
 from .bridge import build_kernel_program, classify_operation
@@ -23,6 +23,7 @@ from .errors import (
 from .hazard import HazardDiagnostic, HazardReporter, SimulatorHazardWarning
 from .memory import (
     A2_A3_LOCAL_CAPACITIES,
+    A5_DAV3510_LOCAL_CAPACITIES,
     AddressRange,
     MemoryAllocation,
     MemoryRuntime,
@@ -30,7 +31,14 @@ from .memory import (
     contiguous_strides_bytes,
     dtype_size_bytes,
 )
-from .profile import DeviceProfile, TimingProfile, default_timing_profile, get_device_profile
+from .profile import (
+    A2_A3_LOCAL_MEMORY_BYTES,
+    A5_DAV3510_LOCAL_MEMORY_BYTES,
+    DeviceProfile,
+    TimingProfile,
+    default_timing_profile,
+    get_device_profile,
+)
 from .program import BufferSpec, CoreProgram, KernelProgram, Lane, MemoryScope, Pipe, Task
 from .scheduler import DiscreteEventScheduler, ScheduleResult
 from .stats import SimulationStats
@@ -44,6 +52,9 @@ from .trace import ChromeTraceExporter, ExecutionRecord
 
 __all__ = [
     "A2_A3_LOCAL_CAPACITIES",
+    "A2_A3_LOCAL_MEMORY_BYTES",
+    "A5_DAV3510_LOCAL_CAPACITIES",
+    "A5_DAV3510_LOCAL_MEMORY_BYTES",
     "AddressRange",
     "BufferSpec",
     "build_kernel_program",

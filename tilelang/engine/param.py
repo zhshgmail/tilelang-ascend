@@ -2,12 +2,17 @@
 # Licensed under the MIT License.
 """The profiler and convert to torch utils"""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Union, Optional
+from typing import TYPE_CHECKING, List, Union, Optional
 import torch
 from tilelang import tvm as tvm
 from tvm.tir import Buffer, IntImm, Var, PrimExpr
 from tilelang.utils.tensor import map_torch_type
+
+if TYPE_CHECKING:
+    from tilelang.pre_codegen_identity import FinalTirIdentity
 
 
 @dataclass
@@ -114,3 +119,4 @@ class CompiledArtifact:
     kernel_source: str  # Raw source code of the generated kernel
     rt_mod: Optional[
         tvm.runtime.Module] = None  # Runtime module for execution, may be lazily initialized
+    pre_codegen_identity: Optional[FinalTirIdentity] = None

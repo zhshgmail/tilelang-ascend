@@ -11,7 +11,9 @@ executors and the remaining roadmap phases are not implemented yet.
 ## 1. Purpose
 
 This document defines a CPU-hosted simulator for TileLang-Ascend kernels targeting
-Ascend A2 and A3. The simulator has two related responsibilities:
+Ascend A2 and A3. A bounded A5/DAV3510 P0 adds final-TIR identity, typed capacity
+selection, and fail-closed static classification only; it does not yet claim A5
+functional or timing fidelity. The simulator has two related responsibilities:
 
 1. **Functional simulation**: execute a lowered kernel without CANN or NPU hardware and
    detect numerical, bounds, initialization, memory-lifetime, and synchronization errors.
@@ -22,8 +24,9 @@ The performance model is intended to compare schedules and explain stalls. It is
 cycle-accurate replacement for on-device profiling, and simulated cycles must not be reported
 as measured kernel latency.
 
-The supported hardware scope is deliberately limited to the common C220 execution model used
-by A2 and A3. A2 and A3 share functional semantics but use separate timing profiles.
+The full functional and performance-model scope is deliberately limited to the common C220
+execution model used by A2 and A3. A2 and A3 share functional semantics but use separate timing
+profiles. The A5 P0 described above is structural and diagnostic rather than a fidelity claim.
 
 ## 2. Scope and non-goals
 
@@ -43,7 +46,8 @@ by A2 and A3. A2 and A3 share functional semantics but use separate timing profi
 - **shmem is not supported and is not planned.** This includes any device-side shared-memory
   or cross-core shmem API and its visibility/coherence protocol. The simulator must fail with
   `UnsupportedSimOpError` if such an operation reaches the bridge.
-- A5/C310, CPU, CUDA, and HIP simulation.
+- A5/C310 functional execution or calibrated timing beyond the bounded DAV3510 P0
+  evidence adapter; CPU, CUDA, and HIP simulation.
 - Bisheng, PTO, or AscendC source interpretation.
 - Exact instruction issue, cache, NoC, DDR contention, thermal, or frequency simulation.
 - Treating simulated cycles as autotuner latency before a separately approved validation gate.

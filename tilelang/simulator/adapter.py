@@ -1,6 +1,6 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
-"""JIT adapter for A2/A3 static scheduling and future functional simulation."""
+"""JIT adapter for static scheduling and future functional simulation."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ class SimulatorKernelAdapter:
         workspace_idx: list[int] | int | None,
         config: SimulatorConfig,
         program: Any,
+        pre_codegen_identity: Any = None,
     ) -> None:
         self.optimized_mod = optimized_mod
         self.params = params
@@ -38,6 +39,7 @@ class SimulatorKernelAdapter:
         self.workspace_idx = self._normalize_indices(workspace_idx, "workspace_idx")
         self.config = config
         self.program = program
+        self.pre_codegen_identity = pre_codegen_identity
         self.artifact = None
         self.dynamic_symbolic_map = self._dynamic_symbolic_map()
         self.last_schedule: Optional[ScheduleResult] = None
@@ -108,7 +110,7 @@ class SimulatorKernelAdapter:
     def _functional_execution_unavailable(self, *_args: Any, **_kwargs: Any) -> Any:
         raise UnsupportedSimOpError(
             "TileLang Ascend functional tensor execution is not implemented yet; "
-            "use kernel.adapter.schedule() for static A2/A3 trace generation."
+            "use kernel.adapter.schedule() for diagnostic static trace generation."
         )
 
 
@@ -124,24 +126,37 @@ def create_simulator_adapter(
     sim_config: Any | None,
     verbose: bool,
 ) -> SimulatorKernelAdapter:
-    """Lower ``func`` and create the A2/A3 static simulator adapter."""
+    """Lower ``func`` and create a diagnostic static simulator adapter."""
     del target_host, verbose
     config = _resolve_config(platform, sim_config)
 
     try:
         from tilelang import tvm
-        from tilelang.engine.lower import lower_ascend_ir
+        from tilelang.engine.lower import lower_ascend_ir, resolve_ascend_target
+        from tilelang.pre_codegen_identity import capture_final_tir_identity
     except (ImportError, OSError) as error:
         raise UnsupportedSimOpError(
             "creating a simulator adapter requires the TileLang TVM runtime"
         ) from error
 
+    resolved_target, resolved_platform = resolve_ascend_target(target, config.platform)
+    if resolved_platform != config.platform:
+        raise SimulatorConfigError(
+            f"resolved platform {resolved_platform} does not match simulator "
+            f"platform {config.platform}"
+        )
+
     with tvm.transform.PassContext(opt_level=3, config=pass_configs):
         optimized_mod, params = lower_ascend_ir(
             func,
-            target=target,
+            target=resolved_target,
             platform=config.platform,
         )
+    pre_codegen_identity = capture_final_tir_identity(
+        optimized_mod,
+        target=resolved_target,
+        platform=config.platform,
+    )
     program = build_kernel_program(
         optimized_mod,
         platform=config.platform,
@@ -154,6 +169,7 @@ def create_simulator_adapter(
         workspace_idx=workspace_idx,
         config=config,
         program=program,
+        pre_codegen_identity=pre_codegen_identity,
     )
 
 

@@ -27,6 +27,7 @@ def test_static_adapter_schedules_and_exports_trace(tmp_path: Path) -> None:
         "add", "add", 0, Lane.VECTOR_0, Pipe.VECTOR, 5, dependencies=("load",)
     )
     program = KernelProgram("add", "A2", (CoreProgram(0, (load, add)),))
+    evidence = object()
     adapter = SimulatorKernelAdapter(
         optimized_mod=_FakeModule(),
         params=[_FakeParam(), _FakeParam()],
@@ -34,6 +35,7 @@ def test_static_adapter_schedules_and_exports_trace(tmp_path: Path) -> None:
         workspace_idx=None,
         config=SimulatorConfig(platform="A2", trace_path=tmp_path / "trace.json"),
         program=program,
+        pre_codegen_identity=evidence,
     )
 
     result = adapter.schedule()
@@ -43,6 +45,7 @@ def test_static_adapter_schedules_and_exports_trace(tmp_path: Path) -> None:
     assert adapter.last_trace == (tmp_path / "trace.json").resolve()
     assert adapter.get_kernel_source() == "optimized tir"
     assert adapter.get_simulator_ir() is program
+    assert adapter.pre_codegen_identity is evidence
 
 
 def test_static_adapter_fails_closed_for_functional_execution() -> None:

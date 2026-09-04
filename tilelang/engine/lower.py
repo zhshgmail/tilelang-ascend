@@ -15,6 +15,7 @@ from tvm.ir import CallingConv
 from tvm.target import Target
 from tilelang.contrib import hipcc, nvcc
 from tilelang.engine.param import KernelParam, CompiledArtifact
+from tilelang.pre_codegen_identity import capture_final_tir_identity
 from tilelang.utils.target import determine_target  # noqa: F401
 from tilelang.engine.phase import (
     LowerAndLegalize,
@@ -168,7 +169,7 @@ def device_codegen(device_mod: tvm.IRModule, target: Target, platform: str) -> t
     return device_mod
 
 
-def _resolve_ascend_target(
+def resolve_ascend_target(
     target: str | Target, platform: str
 ) -> tuple[Target, str]:
     """Resolve the Ascend target without dropping the platform-specific ``mcpu``.
@@ -230,7 +231,7 @@ def lower_ascend_ir(
     this TIR therefore observe the same legalization, target optimization,
     memory planning, synchronization insertion, and final simplification.
     """
-    target, platform = _resolve_ascend_target(target, platform)
+    target, platform = resolve_ascend_target(target, platform)
     mod = _as_ir_module(func_or_mod)
 
     # Make the selected platform available to TIR passes.
@@ -281,9 +282,19 @@ def lower(
     own device codegen implementation in jit.
     """
 
-    target, platform = _resolve_ascend_target(target, platform)
+    target, platform = resolve_ascend_target(target, platform)
     mod, params = lower_ascend_ir(func_or_mod, target=target, platform=platform)
+
+    pre_codegen_identity = capture_final_tir_identity(
+        mod, target=target, platform=platform
+    )
 
     codegen_mod = device_codegen(mod, target, platform)
 
-    return CompiledArtifact(None, mod, params, codegen_mod.get_source())
+    return CompiledArtifact(
+        None,
+        mod,
+        params,
+        codegen_mod.get_source(),
+        pre_codegen_identity=pre_codegen_identity,
+    )

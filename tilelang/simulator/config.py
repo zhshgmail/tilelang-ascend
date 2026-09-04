@@ -1,6 +1,6 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
-"""Configuration for the A2/A3 CPU simulator."""
+"""Configuration for the Ascend CPU simulator."""
 
 from dataclasses import dataclass
 from pathlib import Path

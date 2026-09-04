@@ -18,7 +18,7 @@ from .profile import normalize_platform
 
 
 class Lane(str, Enum):
-    """Logical C220 execution lanes."""
+    """Logical Cube/Vector execution lanes."""
 
     CUBE = "cube"
     VECTOR_0 = "vector0"
@@ -27,7 +27,7 @@ class Lane(str, Enum):
 
 
 class Pipe(str, Enum):
-    """Logical C220 pipeline resources."""
+    """Logical Cube/Vector pipeline resources."""
 
     MTE2 = "mte2"
     MTE1 = "mte1"
@@ -39,7 +39,7 @@ class Pipe(str, Enum):
 
 
 class MemoryScope(str, Enum):
-    """Memory scopes planned for A2/A3, excluding physical shmem."""
+    """Ascend memory scopes modeled by the simulator, excluding physical shmem."""
 
     GM = "gm"
     WORKSPACE = "workspace"
@@ -79,7 +79,7 @@ class MemoryScope(str, Enum):
             return cls(normalized)
         except ValueError as error:
             raise UnsupportedMemoryScopeError(
-                f"unsupported A2/A3 simulator memory scope: {scope!r}"
+                f"unsupported Ascend simulator memory scope: {scope!r}"
             ) from error
 
 

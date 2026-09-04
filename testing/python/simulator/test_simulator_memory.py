@@ -6,6 +6,7 @@ import pytest
 
 from tilelang.simulator import (
     A2_A3_LOCAL_CAPACITIES,
+    A5_DAV3510_LOCAL_CAPACITIES,
     AddressRange,
     BufferSpec,
     CoreProgram,
@@ -108,7 +109,7 @@ def test_views_check_physical_extent_for_contiguous_and_strided_layouts() -> Non
     assert allocation.read(view) == b"abcdefgh"
     assert allocation.read(AddressRange(6, 10)) == b"\xff" * 4
     with pytest.raises(MemoryBoundsError, match="reaches byte"):
-        allocation.view(byte_offset=24, shape=(2, 2), dtype="float16")
+        allocation.view(byte_offset=26, shape=(2, 2), dtype="float16")
     with pytest.raises(MemoryBoundsError, match="same rank"):
         allocation.view(shape=(2, 2), strides_bytes=(2,))
 
@@ -122,6 +123,45 @@ def test_every_local_scope_enforces_a2_a3_capacity(scope: MemoryScope) -> None:
     with pytest.raises(MemoryCapacityError, match="capacity exceeded"):
         MemoryRuntime((0,)).allocate(
             BufferSpec("too-large", scope, (capacity + 1,), "uint8"), core_id=0
+        )
+
+
+@pytest.mark.parametrize(
+    ("scope", "capacity"),
+    [
+        (MemoryScope.L0C, 262144),
+        (MemoryScope.UB, 253952),
+        (MemoryScope.BT, 4096),
+    ],
+)
+def test_a5_dav3510_capacity_boundary(scope: MemoryScope, capacity: int) -> None:
+    assert A5_DAV3510_LOCAL_CAPACITIES[scope] == capacity
+
+    fits = MemoryRuntime((0,), platform="A5")
+    fits.allocate(BufferSpec("fits", scope, (capacity,), "uint8"), core_id=0)
+
+    with pytest.raises(MemoryCapacityError, match="capacity exceeded"):
+        MemoryRuntime((0,), platform="A5").allocate(
+            BufferSpec("too-large", scope, (capacity + 1,), "uint8"), core_id=0
+        )
+
+
+def test_program_selects_platform_capacity_without_cross_target_bleed() -> None:
+    a5_program = KernelProgram(
+        "a5-memory",
+        "A5",
+        (CoreProgram(0),),
+        buffers=(BufferSpec("ub", MemoryScope.UB, (253952,), "uint8"),),
+    )
+    runtime = MemoryRuntime.from_program(a5_program)
+
+    assert runtime.platform == "A5"
+    assert runtime.local_capacities[MemoryScope.UB] == 253952
+
+    with pytest.raises(MemoryCapacityError, match="capacity exceeded"):
+        MemoryRuntime((0,), platform="A3").allocate(
+            BufferSpec("a5-sized-ub", MemoryScope.UB, (253952,), "uint8"),
+            core_id=0,
         )
 
 

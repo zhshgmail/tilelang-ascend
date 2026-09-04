@@ -34,6 +34,33 @@ def test_unknown_operation_fails_closed() -> None:
         classify_operation("tl.ascend_future_magic", Lane.VECTOR_0)
 
 
+def test_unknown_a5_operation_reports_platform_and_fails_closed() -> None:
+    with pytest.raises(
+        UnsupportedSimOpError,
+        match=r"unsupported lowered.*platform=A5",
+    ):
+        classify_operation(
+            "tl.ascend_future_magic", Lane.VECTOR_0, platform="A5"
+        )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "tl.ascend_simt_launch",
+        "tl.ascend_regbase_vector",
+        "tl.ascend_nddma_copy",
+        "tl.ascend_ssbuffer_signal",
+        "tl.ascend_buffer_id_wait",
+    ],
+)
+def test_unmodeled_a5_semantics_do_not_inherit_c220_classification(
+    operation: str,
+) -> None:
+    with pytest.raises(UnsupportedSimOpError, match="unsupported A5 simulator semantic"):
+        classify_operation(operation, Lane.VECTOR_0, platform="A5")
+
+
 def test_shmem_operation_is_permanently_unsupported() -> None:
     with pytest.raises(UnsupportedSimOpError, match="intentionally unsupported"):
         classify_operation("tl.ascend_shmem_put_nbi", Lane.VECTOR_0)

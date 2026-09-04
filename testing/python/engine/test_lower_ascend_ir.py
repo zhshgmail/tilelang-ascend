@@ -7,6 +7,10 @@ from __future__ import annotations
 import importlib
 
 from tilelang import tvm
+from tilelang.pre_codegen_identity import (
+    SIMULATOR_EVIDENCE_AUTHORITY,
+    capture_final_tir_identity,
+)
 from tvm import tir
 
 
@@ -75,3 +79,30 @@ def test_native_lower_codegen_consumes_shared_pre_codegen_ir(monkeypatch):
     assert artifact.device_mod is lowered_mod
     assert artifact.params is params
     assert artifact.kernel_source == "generated source"
+    assert artifact.pre_codegen_identity.authority == SIMULATOR_EVIDENCE_AUTHORITY
+    assert artifact.pre_codegen_identity.platform == "A3"
+    assert artifact.pre_codegen_identity.target_mcpu == "dav-2201"
+
+
+def test_a5_target_resolution_preserves_dav3510_mcpu() -> None:
+    target, platform = lower_module.resolve_ascend_target("ascendc", "A5")
+
+    assert platform == "A5"
+    assert target.model == "ascendc"
+    assert target.mcpu == "dav-3510"
+
+
+def test_final_tir_identity_is_stable_diagnostic_evidence() -> None:
+    module = _empty_module()
+    target, platform = lower_module.resolve_ascend_target("ascendc", "A5")
+
+    first = capture_final_tir_identity(module, target=target, platform=platform)
+    second = capture_final_tir_identity(module, target=target, platform=platform)
+
+    assert first == second
+    assert first.authority == "SIMULATOR_DIAGNOSTIC"
+    assert first.platform == "A5"
+    assert first.target_mcpu == "dav-3510"
+    assert len(first.final_tir_sha256) == 64
+    assert "verdict" not in first.to_dict()
+    assert "pass" not in first.to_dict()
