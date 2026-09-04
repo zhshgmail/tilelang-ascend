@@ -41,12 +41,17 @@ def capture_final_tir_identity(
     platform: str,
     serializer: Optional[Callable[[Any], str]] = None,
 ) -> FinalTirIdentity:
-    """Hash the exact IRModule handed to native code generation or simulation."""
+    """Hash a stable, metadata-complete script of the exact final IRModule."""
     if serializer is None:
-        from tilelang import tvm
+        script = getattr(optimized_mod, "script", None)
+        if not callable(script):
+            raise TypeError("final TIR module must provide script(show_meta=True)")
 
-        serializer = tvm.ir.save_json
-        serialization = "tvm.ir.save_json:utf-8"
+        def default_serializer(value: Any) -> str:
+            return value.script(show_meta=True)
+
+        serializer = default_serializer
+        serialization = "tvm.script(show_meta=True):utf-8"
     else:
         serialization = "caller-supplied:str:utf-8"
 
@@ -55,7 +60,7 @@ def capture_final_tir_identity(
         raise TypeError("final TIR serializer must return str")
     payload = serialized.encode("utf-8")
     return FinalTirIdentity(
-        schema_version="tilelang.final-tir-identity.v1",
+        schema_version="tilelang.final-tir-identity.v2",
         authority=SIMULATOR_EVIDENCE_AUTHORITY,
         final_tir_sha256=sha256(payload).hexdigest(),
         serialization=serialization,

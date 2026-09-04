@@ -5,6 +5,7 @@
 import pytest
 
 from tilelang.simulator import Lane, Pipe, UnsupportedSimOpError, classify_operation
+from tilelang.simulator.bridge import _TirBridge
 
 
 @pytest.mark.parametrize(
@@ -64,3 +65,28 @@ def test_unmodeled_a5_semantics_do_not_inherit_c220_classification(
 def test_shmem_operation_is_permanently_unsupported() -> None:
     with pytest.raises(UnsupportedSimOpError, match="intentionally unsupported"):
         classify_operation("tl.ascend_shmem_put_nbi", Lane.VECTOR_0)
+
+
+@pytest.mark.parametrize(
+    ("operation", "pipe_pair", "flag_id", "expected"),
+    [
+        (
+            "auto_set_flag",
+            "V_MTE3",
+            1,
+            {"src_pipe": "v", "dst_pipe": "mte3", "flag_id": 1},
+        ),
+        (
+            "auto_wait_flag",
+            "MTE2_M",
+            2,
+            {"src_pipe": "mte2", "dst_pipe": "m", "flag_id": 2},
+        ),
+    ],
+)
+def test_auto_flag_metadata_decodes_lowered_pair_form(
+    operation: str, pipe_pair: str, flag_id: int, expected: dict
+) -> None:
+    bridge = object.__new__(_TirBridge)
+
+    assert bridge._sync_metadata(operation, (pipe_pair, flag_id)) == expected

@@ -426,6 +426,15 @@ class _TirBridge:
                     "dst_pipe": str(self._literal(arguments[1])).lower(),
                     "flag_id": self._literal(arguments[2]),
                 })
+            elif "auto_" in normalized and len(arguments) >= 2:
+                pipe_pair = str(self._literal(arguments[0])).lower()
+                src_pipe, separator, dst_pipe = pipe_pair.partition("_")
+                if separator and src_pipe and dst_pipe:
+                    metadata.update({
+                        "src_pipe": src_pipe,
+                        "dst_pipe": dst_pipe,
+                        "flag_id": self._literal(arguments[1]),
+                    })
         if "cross_flag" in normalized:
             flag_arg = 1 if "set_" in normalized else 0
             if len(arguments) > flag_arg:
@@ -469,6 +478,8 @@ class _TirBridge:
 
     @staticmethod
     def _literal(value: Any) -> Any:
+        if isinstance(value, (bool, int, float, str)):
+            return value
         literal = getattr(value, "value", None)
         if isinstance(literal, (bool, int, float, str)):
             return literal

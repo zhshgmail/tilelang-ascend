@@ -54,3 +54,17 @@ def test_final_tir_identity_changes_with_exact_final_tir_bytes() -> None:
     )
 
     assert first.final_tir_sha256 != second.final_tir_sha256
+
+
+def test_default_identity_uses_stable_metadata_complete_script() -> None:
+    class _ScriptableModule:
+        def script(self, *, show_meta: bool) -> str:
+            assert show_meta is True
+            return "stable-final-tir"
+
+    identity = capture_final_tir_identity(
+        _ScriptableModule(), target=_Target(), platform="A5"
+    )
+
+    assert identity.schema_version == "tilelang.final-tir-identity.v2"
+    assert identity.serialization == "tvm.script(show_meta=True):utf-8"
