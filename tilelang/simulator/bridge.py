@@ -6,7 +6,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Mapping, Optional, Tuple
+import math
+from typing import Any, Dict, Mapping, Optional, Tuple, Union
 
 from .errors import ProgramValidationError, UnsupportedSimOpError
 from .profile import TimingProfile, default_timing_profile, normalize_platform
@@ -47,6 +48,8 @@ _A5_UNMODELED_OPERATION_MARKERS = (
     "simt",
     "ssbuffer",
 )
+
+SymbolValue = Union[bool, int, float]
 
 
 @dataclass(frozen=True)
@@ -140,6 +143,7 @@ def build_kernel_program(
     platform: str,
     timing_profile: Optional[TimingProfile] = None,
     max_unrolled_iterations: int = 65536,
+    symbol_bindings: Optional[Mapping[str, SymbolValue]] = None,
 ) -> KernelProgram:
     """Build a simulator program from final optimized TIR.
 
@@ -163,6 +167,7 @@ def build_kernel_program(
         platform=normalized_platform,
         timing_profile=profile,
         max_unrolled_iterations=max_unrolled_iterations,
+        symbol_bindings=_normalize_symbol_bindings(symbol_bindings),
     )
     return bridge.build(func_or_mod)
 
@@ -177,6 +182,7 @@ class _TirBridge:
         platform: str,
         timing_profile: TimingProfile,
         max_unrolled_iterations: int,
+        symbol_bindings: Mapping[str, SymbolValue],
     ) -> None:
         self.tvm = tvm
         self.tir = tir
@@ -184,6 +190,7 @@ class _TirBridge:
         self.platform = platform
         self.timing_profile = timing_profile
         self.max_unrolled_iterations = max_unrolled_iterations
+        self.symbol_bindings = symbol_bindings
         self.tasks: Dict[int, list[Task]] = defaultdict(list)
         self.buffers: Dict[str, BufferSpec] = {}
         self.storage_scope_by_var: Dict[str, MemoryScope] = {}
@@ -458,11 +465,19 @@ class _TirBridge:
         if isinstance(value, int):
             return value
         substituted = value
+        replacements = {}
         if environment:
-            replacements = {
+            replacements.update({
                 var: self.tir.IntImm(getattr(var, "dtype", "int32"), number)
                 for var, number in environment.items()
-            }
+            })
+        for var in self.tir.analysis.undefined_vars(value, []):
+            number = self.symbol_bindings.get(self._var_name(var))
+            if number is not None:
+                replacements[var] = self.tir.const(
+                    number, getattr(var, "dtype", None)
+                )
+        if replacements:
             substituted = self.tir.stmt_functor.substitute(value, replacements)
         simplified = self.analyzer.simplify(substituted)
         literal = getattr(simplified, "value", None)
@@ -488,3 +503,21 @@ class _TirBridge:
     @staticmethod
     def _var_name(value: Any) -> str:
         return str(getattr(value, "name", getattr(value, "name_hint", value)))
+
+
+def _normalize_symbol_bindings(
+    bindings: Optional[Mapping[str, SymbolValue]],
+) -> Mapping[str, SymbolValue]:
+    normalized: Dict[str, SymbolValue] = {}
+    for raw_name, raw_value in (bindings or {}).items():
+        name = str(raw_name).strip()
+        if not name:
+            raise ValueError("simulator symbol binding name must not be empty")
+        if not isinstance(raw_value, (bool, int, float)) or (
+            isinstance(raw_value, float) and not math.isfinite(raw_value)
+        ):
+            raise ValueError(
+                f"simulator symbol binding {name!r} must be a finite bool, int, or float"
+            )
+        normalized[name] = raw_value
+    return normalized

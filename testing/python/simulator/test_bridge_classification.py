@@ -5,7 +5,7 @@
 import pytest
 
 from tilelang.simulator import Lane, Pipe, UnsupportedSimOpError, classify_operation
-from tilelang.simulator.bridge import _TirBridge
+from tilelang.simulator.bridge import _TirBridge, _normalize_symbol_bindings
 
 
 @pytest.mark.parametrize(
@@ -90,3 +90,16 @@ def test_auto_flag_metadata_decodes_lowered_pair_form(
     bridge = object.__new__(_TirBridge)
 
     assert bridge._sync_metadata(operation, (pipe_pair, flag_id)) == expected
+
+
+def test_symbol_bindings_are_normalized_and_validated() -> None:
+    assert _normalize_symbol_bindings(
+        {" B ": 1, "window_left": -1, "causal": True, "scale": 0.125}
+    ) == {"B": 1, "window_left": -1, "causal": True, "scale": 0.125}
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        _normalize_symbol_bindings({" ": 1})
+    with pytest.raises(ValueError, match="finite bool, int, or float"):
+        _normalize_symbol_bindings({"B": "1"})
+    with pytest.raises(ValueError, match="finite bool, int, or float"):
+        _normalize_symbol_bindings({"scale": float("nan")})
