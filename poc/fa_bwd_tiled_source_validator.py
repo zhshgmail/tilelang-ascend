@@ -66,4 +66,3 @@ def validate_tiled_source(
         "case_specialization_absent": True,
         "atomic_output_dependency_absent": True,
     }
-
