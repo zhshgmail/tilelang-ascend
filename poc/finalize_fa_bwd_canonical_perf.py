@@ -92,7 +92,7 @@ def exact_active_runs(profile_root: Path, warmup: int = 3, repeats: int = 5) -> 
 
 
 def validate_mapping_receipts(op_dir: Path, binding: dict) -> list[dict]:
-    expected_files = binding["mapped_candidate_files"]
+    expected_files = sorted(binding["mapped_candidate_files"])
     expected_hashes = binding["candidate_files"]
     by_case: dict[int, list[dict]] = {index: [] for index in range(50)}
     for path in sorted((op_dir / "mapping_receipts").glob("case_*_pid_*.json")):

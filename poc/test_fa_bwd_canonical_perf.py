@@ -75,6 +75,44 @@ def test_mapping_receipts_reject_incomplete_case_coverage(tmp_path: Path) -> Non
         finalize.validate_mapping_receipts(tmp_path, binding)
 
 
+def test_mapping_receipts_accept_normalized_loaded_order(tmp_path: Path) -> None:
+    mapping_dir = tmp_path / "mapping_receipts"
+    mapping_dir.mkdir()
+    binding_order = [
+        "generated/kernel/fa_bwd_fp16.cpp.so",
+        "generated/kernel/fa_bwd_bf16.cpp.so",
+        "generated/kernel/fa_bwd_fp32.cpp.so",
+        "generated/libtilelang_fa_bwd_dispatch.so",
+    ]
+    hashes = {
+        f"candidate/bundle/{relative}": f"{index + 1:x}" * 64
+        for index, relative in enumerate(binding_order)
+    }
+    normalized = sorted(binding_order)
+    for case_index in range(50):
+        (mapping_dir / f"case_{case_index:02d}_pid_1.json").write_text(
+            json.dumps({
+                "case_index": case_index,
+                "mapped_bundle_owned_shared_objects": [
+                    {
+                        "relative_path": relative,
+                        "sha256": hashes[f"candidate/bundle/{relative}"],
+                    }
+                    for relative in normalized
+                ],
+            }),
+            encoding="utf-8",
+        )
+    result = finalize.validate_mapping_receipts(
+        tmp_path,
+        {
+            "mapped_candidate_files": binding_order,
+            "candidate_files": hashes,
+        },
+    )
+    assert len(result) == 50
+
+
 def test_candidate_contract_is_exact_e288() -> None:
     assert prepare.SOURCE_COMMIT == "e28825ac9af5264b85a97e8ec0e25f3d238c37a3"
     assert prepare.SOURCE_TREE == "3ca646473522839e4a4d0cece1441cedba03520b"
