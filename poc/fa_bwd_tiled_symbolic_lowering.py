@@ -7,8 +7,6 @@ is split between dQ tiles and dK/dV tiles so correctness never depends on
 pre-zeroed output buffers or atomic accumulation.
 """
 
-from __future__ import annotations
-
 from tilelang import language as T
 
 
