@@ -15,6 +15,7 @@ from tvm.ir import CallingConv
 from tvm.target import Target
 from tilelang.contrib import hipcc, nvcc
 from tilelang.engine.param import KernelParam, CompiledArtifact
+from tilelang.pre_codegen_identity import capture_final_tir_identity
 from tilelang.utils.target import determine_target  # noqa: F401
 from tilelang.engine.phase import (
     LowerAndLegalize,
@@ -157,8 +158,6 @@ def host_codegen(host_mod: tvm.IRModule, target_host: Target) -> tvm.IRModule:
 
 
 def device_codegen(device_mod: tvm.IRModule, target: Target, platform: str) -> tvm.IRModule:
-    device_mod = tir.transform.Simplify()(device_mod)
-
     if target.model == "ascendc" or target.model == "auto":
         device_mod = tvm._ffi.get_global_func("target.build.tilelang_ascend")(device_mod, target, platform)
     elif target.model == "pto":
@@ -168,6 +167,83 @@ def device_codegen(device_mod: tvm.IRModule, target: Target, platform: str) -> t
         raise ValueError(f"Target {target.kind.name} is not supported")
 
     return device_mod
+
+
+def resolve_ascend_target(
+    target: str | Target, platform: str
+) -> tuple[Target, str]:
+    """Resolve the Ascend target without dropping the platform-specific ``mcpu``.
+
+    The simulator and native code generator share this resolver.  This keeps the
+    final pre-codegen TIR on the same A2/A3/A5 pass path and prevents simulation
+    from silently lowering an A5 program as DAV2201.
+    """
+    from tilelang.utils.target import (
+        ascend_mcpu_for_platform,
+        ascend_platform_from_mcpu,
+        determine_platform,
+    )
+
+    explicit_mcpu = getattr(target, "mcpu", None) if isinstance(target, Target) else None
+    target_platform = ascend_platform_from_mcpu(explicit_mcpu)
+    if platform == "auto" and target_platform is not None and "/" not in target_platform:
+        platform = target_platform
+    else:
+        platform = determine_platform(platform)
+
+    platform_mcpu = ascend_mcpu_for_platform(platform)
+    if isinstance(target, Target):
+        if target_platform is not None and platform not in target_platform.split("/"):
+            raise ValueError(
+                f"Target mcpu {explicit_mcpu!r} conflicts with Ascend platform {platform}"
+            )
+        if explicit_mcpu:
+            platform_mcpu = explicit_mcpu
+        target_model = getattr(target, "model", "") or str(target)
+    else:
+        target_model = target
+
+    return (
+        tvm.target.Target(
+            {"kind": "llvm", "model": str(target_model), "mcpu": platform_mcpu}
+        ),
+        platform,
+    )
+
+
+def _as_ir_module(func_or_mod: tir.PrimFunc | tvm.IRModule) -> tvm.IRModule:
+    """Wrap a PrimFunc in an IRModule while preserving an existing module."""
+    if isinstance(func_or_mod, tir.PrimFunc):
+        global_symbol = func_or_mod.attrs["global_symbol"]
+        return tvm.IRModule({global_symbol: func_or_mod})
+    return func_or_mod
+
+
+def lower_ascend_ir(
+    func_or_mod: tir.PrimFunc | tvm.IRModule,
+    target: str | Target = "auto",
+    platform: str = "auto",
+) -> tuple[tvm.IRModule, list[KernelParam]]:
+    """Lower an Ascend program to the final, simplified pre-codegen TIR.
+
+    This is the authoritative lowering boundary shared by native compilation and
+    alternate execution backends such as the CPU simulator.  Callers consuming
+    this TIR therefore observe the same legalization, target optimization,
+    memory planning, synchronization insertion, and final simplification.
+    """
+    target, platform = resolve_ascend_target(target, platform)
+    mod = _as_ir_module(func_or_mod)
+
+    # Make the selected platform available to TIR passes.
+    for gvar, func in mod.functions_items():
+        mod[gvar] = func.with_attr("npu_platform", platform)
+
+    mod = LowerAndLegalize(mod, target)
+    mod = OptimizeForTarget(mod, target, platform)
+    mod = tir.transform.Simplify()(mod)
+
+    func = mod.functions_items()[0][1]
+    return mod, extrac_params(func)
 
 
 def device_codegen_without_compile(device_mod: tvm.IRModule, target: Target) -> tvm.IRModule:
@@ -206,50 +282,19 @@ def lower(
     own device codegen implementation in jit.
     """
 
-    from tilelang.utils.target import (
-        ascend_mcpu_for_platform,
-        ascend_platform_from_mcpu,
-        determine_platform,
+    target, platform = resolve_ascend_target(target, platform)
+    mod, params = lower_ascend_ir(func_or_mod, target=target, platform=platform)
+
+    pre_codegen_identity = capture_final_tir_identity(
+        mod, target=target, platform=platform
     )
-
-    explicit_mcpu = getattr(target, "mcpu", None) if isinstance(target, tvm.target.Target) else None
-    target_platform = ascend_platform_from_mcpu(explicit_mcpu)
-    if platform == "auto" and target_platform is not None and "/" not in target_platform:
-        platform = target_platform
-    else:
-        platform = determine_platform(platform)
-
-    mod = func_or_mod
-    params = None
-    if isinstance(func_or_mod, tir.PrimFunc):
-        func = func_or_mod
-        params = extrac_params(func) if not runtime_only else None
-        mod = tvm.IRModule({func.attrs["global_symbol"]: func})
-
-    # Inject platform into PrimFunc attrs for TIR pass access
-    for gvar, f in mod.functions_items():
-        mod[gvar] = f.with_attr("npu_platform", platform)
-
-    platform_mcpu = ascend_mcpu_for_platform(platform)
-    if isinstance(target, tvm.target.Target):
-        if target_platform is not None and platform not in target_platform.split("/"):
-            raise ValueError(f"Target mcpu {explicit_mcpu!r} conflicts with Ascend platform {platform}")
-        if explicit_mcpu:
-            platform_mcpu = explicit_mcpu
-        target_model = getattr(target, "model", "") or str(target)
-    else:
-        target_model = target
-    target = tvm.target.Target({"kind": "llvm", "model": str(target_model), "mcpu": platform_mcpu})
-
-    # Phase 1: Lower and legalize the IR
-    mod = LowerAndLegalize(mod, target)
-
-    # Phase 2: Optimize the IR for the target
-    mod = OptimizeForTarget(mod, target, platform)
 
     codegen_mod = device_codegen(mod, target, platform)
 
-    func = mod.functions_items()[0][1]
-    params = extrac_params(func)
-
-    return CompiledArtifact(None, mod, params, codegen_mod.get_source())
+    return CompiledArtifact(
+        None,
+        mod,
+        params,
+        codegen_mod.get_source(),
+        pre_codegen_identity=pre_codegen_identity,
+    )
