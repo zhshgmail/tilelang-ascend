@@ -92,12 +92,12 @@ if(DEFINED TVM_PREBUILD_PATH)
   add_library(tvm SHARED IMPORTED)
   set_target_properties(tvm PROPERTIES
     IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtvm.so"
-    INTERFACE_INCLUDE_DIRECTORIES "${TVM_PREBUILD_PATH}/../include"
+    INTERFACE_INCLUDE_DIRECTORIES "${TVM_SOURCE_DIR}/include"
   )
   add_library(tvm_runtime SHARED IMPORTED)
   set_target_properties(tvm_runtime PROPERTIES
     IMPORTED_LOCATION "${TVM_PREBUILD_PATH}/libtvm_runtime.so"
-    INTERFACE_INCLUDE_DIRECTORIES "${TVM_PREBUILD_PATH}/../include"
+    INTERFACE_INCLUDE_DIRECTORIES "${TVM_SOURCE_DIR}/include"
   )
 else()
   message(STATUS "Building TVM from source at ${TVM_SOURCE_DIR}")
