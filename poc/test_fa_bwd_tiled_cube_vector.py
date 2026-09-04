@@ -103,6 +103,11 @@ def test_checkpoint_classifies_the_observed_combinecv_boundary() -> None:
 
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16", "float32"])
 def test_tiled_primfunc_builds_for_each_dtype(dtype: str) -> None:
+    # Importing the source-tree package installs its vendored TVM path.  A
+    # direct ``import tvm`` can otherwise skip a real native TileLang build.
+    pytest.importorskip(
+        "tilelang", reason="native TileLang/TVM build is optional locally"
+    )
     pytest.importorskip("tvm", reason="native TileLang/TVM build is optional locally")
     from poc.fa_bwd_tiled_symbolic_lowering import make_fa_bwd_tiled
 
