@@ -839,14 +839,31 @@ def validate_real_source(
     }
 
 
-def lower_variant(dtype: str, host_entry: str, kernel_entry: str):
+def lower_variant(
+    dtype: str,
+    host_entry: str,
+    kernel_entry: str,
+    kernel_path: str = "scalar",
+):
     import tilelang
     from tilelang import tvm
 
-    from poc.fa_bwd_symbolic_lowering import make_fa_bwd_scalar
+    if kernel_path == "scalar":
+        from poc.fa_bwd_symbolic_lowering import make_fa_bwd_scalar
 
-    function = make_fa_bwd_scalar(dtype, host_entry, kernel_entry)
-    with tvm.transform.PassContext(config=FA_BWD_PASS_CONFIGS):
+        function = make_fa_bwd_scalar(dtype, host_entry, kernel_entry)
+        pass_configs = FA_BWD_PASS_CONFIGS
+    elif kernel_path == "tiled":
+        from poc.fa_bwd_tiled_symbolic_lowering import (
+            TILED_FA_BWD_PASS_CONFIGS,
+            make_fa_bwd_tiled,
+        )
+
+        function = make_fa_bwd_tiled(dtype, host_entry, kernel_entry)
+        pass_configs = TILED_FA_BWD_PASS_CONFIGS
+    else:
+        raise ValueError(f"unknown FA-Bwd kernel path: {kernel_path!r}")
+    with tvm.transform.PassContext(config=pass_configs):
         return tilelang.lower(function, target="ascendc", platform="A5")
 
 
@@ -1081,6 +1098,12 @@ def main() -> int:
     parser.add_argument("--operator-source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-observation", type=Path, required=True)
+    parser.add_argument(
+        "--kernel-path",
+        choices=("scalar", "tiled"),
+        default="scalar",
+        help="lower the frozen scalar reference or the tiled Cube+Vector successor",
+    )
     args = parser.parse_args()
 
     bound_inputs = {
@@ -1124,7 +1147,10 @@ def main() -> int:
     variant_paths = []
     for variant in plan.variants:
         artifact = lower_variant(
-            variant.dtype, variant.host_entry, variant.kernel_symbol
+            variant.dtype,
+            variant.host_entry,
+            variant.kernel_symbol,
+            kernel_path=args.kernel_path,
         )
         source_path = (
             generated
@@ -1133,12 +1159,22 @@ def main() -> int:
         )
         source_path.parent.mkdir(parents=True, exist_ok=True)
         source_path.write_text(artifact.kernel_source, encoding="utf-8")
-        guards[variant.dtype] = validate_real_source(
-            artifact.kernel_source,
-            variant.host_entry,
-            variant.kernel_symbol,
-            variant.dtype,
-        )
+        if args.kernel_path == "scalar":
+            guards[variant.dtype] = validate_real_source(
+                artifact.kernel_source,
+                variant.host_entry,
+                variant.kernel_symbol,
+                variant.dtype,
+            )
+        else:
+            from poc.fa_bwd_tiled_source_validator import validate_tiled_source
+
+            guards[variant.dtype] = validate_tiled_source(
+                artifact.kernel_source,
+                variant.host_entry,
+                variant.kernel_symbol,
+                variant.dtype,
+            )
         library_path = source_path.with_suffix(".so")
         command, compiler_source, library_path = compile_variant(
             artifact.kernel_source, library_path
@@ -1206,6 +1242,7 @@ def main() -> int:
             "a3_factory_kernel_count": plan.a3_factory_kernel_count,
         },
         "poc": {
+            "kernel_path": args.kernel_path,
             "host_dispatcher_count": 1,
             "real_tilelang_kernel_variants": len(plan.variants),
             "variant_key": "dtype",
