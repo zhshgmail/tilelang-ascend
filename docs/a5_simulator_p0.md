@@ -54,11 +54,35 @@ pruning.
 - Unknown operations and explicitly unmodeled DAV3510 semantics fail closed.
   They do not inherit a similarly named C220 operation classification.
 
-## Deliberately missing after P0
+## Bounded P1 scalar-control behavior
 
-- unspecialized symbolic control and data-dependent `If` conditions such as a
-  predicate loaded from a mask buffer;
-- scalar `BufferLoad`/`BufferStore` functional semantics;
+The final-TIR bridge now evaluates the scalar values needed to decide A5
+control flow. This is intentionally narrower than functional tensor execution:
+
+- A5 `For`, `IfThenElse`, `LetStmt`, and `AssertStmt` can consume finite scalar
+  constants, bound scalar `Var` values, and scalar `BufferLoad` values produced
+  by an earlier scalar `BufferStore` in the same modeled core/vector context.
+- The expression subset is integer and finite floating arithmetic, integer
+  division/modulo, `Min`/`Max`, comparisons, boolean `And`/`Or`/`Not`, `Cast`,
+  and branch-lazy `Select`.
+- Known scalar stores carry deterministic `scalar_indices` and `scalar_value`
+  metadata on their existing `buffer_store` task. A store whose value is not
+  modeled remains a static scheduling task; if later control flow consumes it,
+  the unknown value propagates and fails closed.
+- Read-before-write, an unbound scalar, a non-scalar index, a non-integral loop
+  extent, and every expression outside the list above fail closed when needed
+  by control flow.
+- The behavior is gated to A5. A2/A3 keep the P0 constant-specialization
+  boundary, including their existing error for a buffer-dependent condition.
+
+This slice is covered by a device-free differential fixture against direct
+Python scalar truth. It does not add an acceptance gate, and does not change
+the `SIMULATOR_DIAGNOSTIC` final-TIR identity or its authority.
+
+## Deliberately missing after bounded P1
+
+- parameter-buffer inputs and complete tensor-output functional execution;
+- scalar loads whose most recent producer is an unmodeled tensor/vector call;
 - bit-accurate BF16 storage, casts, transcendental functions, and reductions;
 - DAV3510 BufferID/SSBuffer, SIMT, RegBase, NDDMA, CCU/KFC, and related runtime
   behavior;

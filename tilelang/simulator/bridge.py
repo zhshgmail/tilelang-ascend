@@ -1,6 +1,6 @@
 # Copyright (c) Tile-AI Corporation.
 # Licensed under the MIT License.
-"""Lower final A2/A3 TIR into the simulator's backend-neutral program model."""
+"""Lower final A2/A3/A5 TIR into the simulator's backend-neutral program model."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from typing import Any, Dict, Mapping, Optional, Tuple, Union
 from .errors import ProgramValidationError, UnsupportedSimOpError
 from .profile import TimingProfile, default_timing_profile, normalize_platform
 from .program import BufferSpec, CoreProgram, KernelProgram, Lane, MemoryScope, Pipe, Task
+from .scalar import A5ScalarControlEvaluator
 
 
 _VECTOR_OPS = frozenset({
@@ -57,7 +58,7 @@ class _Context:
     core_id: int = 0
     lane: Lane = Lane.CONTROL
     vector_index: Optional[int] = None
-    environment: Mapping[Any, int] = None
+    environment: Mapping[Any, SymbolValue] = None
 
     def __post_init__(self) -> None:
         if self.environment is None:
@@ -194,6 +195,15 @@ class _TirBridge:
         self.tasks: Dict[int, list[Task]] = defaultdict(list)
         self.buffers: Dict[str, BufferSpec] = {}
         self.storage_scope_by_var: Dict[str, MemoryScope] = {}
+        self.scalar_control = (
+            A5ScalarControlEvaluator(
+                tir=tir,
+                analyzer=analyzer,
+                symbol_bindings=symbol_bindings,
+            )
+            if platform == "A5"
+            else None
+        )
         self.task_counter = 0
         self.kernel_name = "main"
 
@@ -236,6 +246,8 @@ class _TirBridge:
         for _, buffer in func.buffer_map.items():
             name = str(buffer.name)
             shape = tuple(self._extent_or_symbol(extent, {}) for extent in buffer.shape)
+            if self.scalar_control is not None:
+                self.scalar_control.register_buffer(buffer.data, MemoryScope.GM)
             self.buffers.setdefault(
                 name,
                 BufferSpec(name, MemoryScope.GM, shape, str(buffer.dtype)),
@@ -253,8 +265,8 @@ class _TirBridge:
             self._visit_attr(stmt, context)
             return
         if isinstance(stmt, tir.For):
-            minimum = self._require_int(stmt.min, context.environment, "loop minimum")
-            extent = self._require_int(stmt.extent, context.environment, "loop extent")
+            minimum = self._require_loop_int(stmt.min, context, "loop minimum")
+            extent = self._require_loop_int(stmt.extent, context, "loop extent")
             if extent < 0 or extent > self.max_unrolled_iterations:
                 raise UnsupportedSimOpError(
                     f"loop extent {extent} exceeds simulator bridge limit "
@@ -266,17 +278,33 @@ class _TirBridge:
                 self._visit(stmt.body, replace(context, environment=environment))
             return
         if isinstance(stmt, tir.IfThenElse):
-            condition = self._require_int(stmt.condition, context.environment, "if condition")
+            condition = self._require_condition(stmt.condition, context, "if condition")
             self._visit(stmt.then_case if condition else stmt.else_case, context)
             return
         if isinstance(stmt, tir.LetStmt):
-            value = self._require_int(stmt.value, context.environment, "let binding")
+            value = (
+                self.scalar_control.require(
+                    stmt.value,
+                    context.environment,
+                    core_id=context.core_id,
+                    vector_index=context.vector_index,
+                    what="let binding",
+                )
+                if self.scalar_control is not None
+                else self._require_int(stmt.value, context.environment, "let binding")
+            )
             environment = dict(context.environment)
             environment[stmt.var] = value
             self._visit(stmt.body, replace(context, environment=environment))
             return
         if isinstance(stmt, tir.Allocate):
             self._collect_allocate(stmt, context)
+            if self.scalar_control is not None:
+                self.scalar_control.clear_allocation(
+                    stmt.buffer_var,
+                    core_id=context.core_id,
+                    vector_index=context.vector_index,
+                )
             self._visit(stmt.body, context)
             return
         if hasattr(tir, "DeclBuffer") and isinstance(stmt, tir.DeclBuffer):
@@ -293,7 +321,7 @@ class _TirBridge:
             self._visit(stmt.body, context)
             return
         if isinstance(stmt, tir.AssertStmt):
-            condition = self._require_int(stmt.condition, context.environment, "assertion")
+            condition = self._require_condition(stmt.condition, context, "assertion")
             if not condition:
                 raise ProgramValidationError(f"TIR assertion failed: {stmt.message}")
             self._visit(stmt.body, context)
@@ -305,10 +333,20 @@ class _TirBridge:
                 self._emit_call(stmt.value, context)
                 return
         if isinstance(stmt, tir.BufferStore):
+            metadata = {"buffer": str(stmt.buffer.name), "tir": str(stmt)}
+            if self.scalar_control is not None:
+                metadata.update(
+                    self.scalar_control.record_store(
+                        stmt,
+                        context.environment,
+                        core_id=context.core_id,
+                        vector_index=context.vector_index,
+                    )
+                )
             self._emit_task(
                 "buffer_store",
                 context,
-                metadata={"buffer": str(stmt.buffer.name), "tir": str(stmt)},
+                metadata=metadata,
             )
             return
         raise UnsupportedSimOpError(
@@ -371,9 +409,13 @@ class _TirBridge:
         shape = tuple(
             self._extent_or_symbol(extent, context.environment) for extent in stmt.extents
         )
+        if self.scalar_control is not None:
+            self.scalar_control.register_buffer(stmt.buffer_var, scope)
         self.buffers.setdefault(name, BufferSpec(name, scope, shape, str(stmt.dtype)))
 
     def _emit_call(self, call: Any, context: _Context) -> None:
+        if self.scalar_control is not None:
+            self.scalar_control.invalidate_call(call)
         operation, arguments = self._call_operation(call)
         metadata = {
             "arguments": tuple(self._literal(arg) for arg in arguments),
@@ -450,6 +492,28 @@ class _TirBridge:
         if "barrier" in normalized and arguments:
             metadata["target_pipe"] = str(self._literal(arguments[0])).lower()
         return metadata
+
+    def _require_loop_int(self, value: Any, context: _Context, what: str) -> int:
+        if self.scalar_control is None:
+            return self._require_int(value, context.environment, what)
+        return self.scalar_control.require_loop_int(
+            value,
+            context.environment,
+            core_id=context.core_id,
+            vector_index=context.vector_index,
+            what=what,
+        )
+
+    def _require_condition(self, value: Any, context: _Context, what: str) -> bool:
+        if self.scalar_control is None:
+            return bool(self._require_int(value, context.environment, what))
+        return self.scalar_control.require_condition(
+            value,
+            context.environment,
+            core_id=context.core_id,
+            vector_index=context.vector_index,
+            what=what,
+        )
 
     def _require_int(self, value: Any, environment: Mapping[Any, int], what: str) -> int:
         result = self._const_int(value, environment)
