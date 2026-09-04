@@ -41,16 +41,23 @@ pruning.
 ## P0 behavior
 
 - `lower_ascend_ir` is shared by native code generation and simulator analysis.
-- The final module is serialized once at the pre-codegen boundary and exposed
-  as `SIMULATOR_DIAGNOSTIC` evidence with target, platform, and `mcpu` identity.
+- The final module is rendered with metadata-complete TVMScript at the
+  pre-codegen boundary and exposed as stable `SIMULATOR_DIAGNOSTIC` evidence
+  with target, platform, and `mcpu` identity. Raw `tvm.ir.save_json` is not
+  used for this identity because `Map` node order can vary across processes.
 - A5 memory allocation uses the DAV3510 capacity table rather than the C220
   table.
+- `build_kernel_program(..., symbol_bindings=...)` can specialize finite
+  boolean, integer, and floating scalar symbols before expanding `For`, `If`,
+  and `Let` control. Lowered two-argument `auto_{set,wait}_flag` calls preserve
+  their combined pipe pair and event id for synchronization scheduling.
 - Unknown operations and explicitly unmodeled DAV3510 semantics fail closed.
   They do not inherit a similarly named C220 operation classification.
 
 ## Deliberately missing after P0
 
-- symbolic `For`/`If`/`Let` execution;
+- unspecialized symbolic control and data-dependent `If` conditions such as a
+  predicate loaded from a mask buffer;
 - scalar `BufferLoad`/`BufferStore` functional semantics;
 - bit-accurate BF16 storage, casts, transcendental functions, and reductions;
 - DAV3510 BufferID/SSBuffer, SIMT, RegBase, NDDMA, CCU/KFC, and related runtime
