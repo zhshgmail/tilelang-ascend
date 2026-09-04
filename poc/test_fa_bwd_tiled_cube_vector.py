@@ -67,16 +67,38 @@ def test_driver_selects_tiled_route_a_without_changing_dtype_variant_count() -> 
 def test_checkpoint_emitter_is_device_free_and_fail_closed() -> None:
     source = EMITTER.read_text(encoding="utf-8")
     assert '"authority": "DEVICE_FREE_ROUTE_A_IR_AND_SOURCE_ONLY"' in source
+    assert '"authority": "DEVICE_FREE_ROUTE_A_IR_BOUNDARY_ONLY"' in source
     assert '"npu_used": False' in source
     assert '"bisheng_invoked": False' in source
     assert 'kernel_path="tiled"' in source
     assert "len(cases) != 50 or len(plan.variants) != 3" in source
+    assert '"generated_source_admitted": False' in source
+    assert 'return "ASCEND_COMBINE_CV_SYNC_POINT_MISMATCH"' in source
+    assert "return 2" in source
     for gate in (
         "CANN_9_2_BISHENG_15_DAV3510_COMPILE_ONLY",
         "FRESH_NPU_FIXED50_PRECISION_AND_KNOWN_BAD",
         "CANONICAL_SAME_CANDIDATE_MSPROF_GE_1X",
     ):
         assert gate in source
+
+
+def test_checkpoint_classifies_the_observed_combinecv_boundary() -> None:
+    from poc.emit_fa_bwd_tiled_source_checkpoint import classify_lowering_failure
+
+    error = (
+        "TVMError: Mismatch in sync points between cube and vec for "
+        "workspace workspace_13: cube has 1, vec has 8\n"
+        "src/transform/ascend_combinecv.cc:375"
+    )
+    assert (
+        classify_lowering_failure(error)
+        == "ASCEND_COMBINE_CV_SYNC_POINT_MISMATCH"
+    )
+    assert (
+        classify_lowering_failure("some other compiler failure")
+        == "UNCLASSIFIED_ROUTE_A_LOWERING_FAILURE"
+    )
 
 
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16", "float32"])

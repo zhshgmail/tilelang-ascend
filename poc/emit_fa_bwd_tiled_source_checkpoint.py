@@ -8,6 +8,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 
 
@@ -17,6 +18,27 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def classify_lowering_failure(error_text: str) -> str:
+    """Return a stable fail-closed boundary label for a Route-A failure."""
+
+    if (
+        "Mismatch in sync points between cube and vec" in error_text
+        and "ascend_combinecv.cc" in error_text
+    ):
+        return "ASCEND_COMBINE_CV_SYNC_POINT_MISMATCH"
+    return "UNCLASSIFIED_ROUTE_A_LOWERING_FAILURE"
+
+
+def write_manifest(output: Path) -> None:
+    rows = []
+    for path in sorted(item for item in output.rglob("*") if item.is_file()):
+        if path.name != "MANIFEST.sha256":
+            rows.append(f"{sha256(path)}  {path.relative_to(output)}")
+    (output / "MANIFEST.sha256").write_text(
+        "\n".join(rows) + "\n", encoding="utf-8"
+    )
 
 
 def main() -> int:
@@ -75,20 +97,6 @@ def main() -> int:
                 f"found {gemm_intrinsics}"
             )
 
-        artifact = lower_variant(
-            variant.dtype,
-            variant.host_entry,
-            variant.kernel_symbol,
-            kernel_path="tiled",
-        )
-        source_path = source_dir / f"fa_bwd_{suffix}.cpp"
-        source_path.write_text(artifact.kernel_source, encoding="utf-8")
-        guard = validate_tiled_source(
-            artifact.kernel_source,
-            variant.host_entry,
-            variant.kernel_symbol,
-            variant.dtype,
-        )
         variants[variant.dtype] = {
             "host_entry": variant.host_entry,
             "kernel_entry": variant.kernel_symbol,
@@ -99,16 +107,11 @@ def main() -> int:
                 "bytes": ir_path.stat().st_size,
                 "gemm_intrinsic_count": gemm_intrinsics,
             },
-            "generated_source": {
-                "path": str(source_path.relative_to(output)),
-                "sha256": sha256(source_path),
-                "bytes": source_path.stat().st_size,
-            },
-            "guard": guard,
         }
 
     result = {
-        "authority": "DEVICE_FREE_ROUTE_A_IR_AND_SOURCE_ONLY",
+        "status": "IN_PROGRESS",
+        "authority": "DEVICE_FREE_ROUTE_A_IR_ONLY",
         "npu_used": False,
         "bisheng_invoked": False,
         "source_head": identity[0],
@@ -134,16 +137,83 @@ def main() -> int:
             "CANONICAL_SAME_CANDIDATE_MSPROF_GE_1X",
         ],
     }
+
+    # Build every dtype IR before entering the shared CombineCV pass.  A
+    # compiler failure must retain the complete symbolic-family receipt while
+    # refusing to claim that generated source exists.
+    for variant in plan.variants:
+        suffix = ascendc_dispatch.DTYPE_SUFFIXES[variant.dtype]
+        try:
+            artifact = lower_variant(
+                variant.dtype,
+                variant.host_entry,
+                variant.kernel_symbol,
+                kernel_path="tiled",
+            )
+        except Exception:
+            error_text = traceback.format_exc()
+            error_path = output / "LOWERING_ERROR.txt"
+            error_path.write_text(error_text, encoding="utf-8")
+            result.update(
+                {
+                    "status": "LOWERING_BLOCKED",
+                    "authority": "DEVICE_FREE_ROUTE_A_IR_BOUNDARY_ONLY",
+                    "lowering_boundary": {
+                        "dtype": variant.dtype,
+                        "classification": classify_lowering_failure(error_text),
+                        "error_path": str(error_path.relative_to(output)),
+                        "error_sha256": sha256(error_path),
+                        "generated_source_admitted": False,
+                        "unsafe_bypass_rejected": (
+                            "Disabling tl.ascend_auto_cross_core_sync emits "
+                            "source without the required Cube/Vector workspace "
+                            "handoff and is not a product candidate."
+                        ),
+                    },
+                }
+            )
+            result["remaining_gates"].insert(
+                0, "MANUAL_EXPERT_CV_STATE_MACHINE_OR_COMPILER_CFG_SUPPORT"
+            )
+            result_path = output / "RESULT.json"
+            result_path.write_text(
+                json.dumps(result, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            write_manifest(output)
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 2
+
+        source_path = source_dir / f"fa_bwd_{suffix}.cpp"
+        source_path.write_text(artifact.kernel_source, encoding="utf-8")
+        guard = validate_tiled_source(
+            artifact.kernel_source,
+            variant.host_entry,
+            variant.kernel_symbol,
+            variant.dtype,
+        )
+        variants[variant.dtype].update(
+            {
+                "generated_source": {
+                    "path": str(source_path.relative_to(output)),
+                    "sha256": sha256(source_path),
+                    "bytes": source_path.stat().st_size,
+                },
+                "guard": guard,
+            }
+        )
+
+    result.update(
+        {
+            "status": "PASS",
+            "authority": "DEVICE_FREE_ROUTE_A_IR_AND_SOURCE_ONLY",
+        }
+    )
     result_path = output / "RESULT.json"
     result_path.write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    rows = []
-    for path in sorted(item for item in output.rglob("*") if item.is_file()):
-        rows.append(f"{sha256(path)}  {path.relative_to(output)}")
-    (output / "MANIFEST.sha256").write_text(
-        "\n".join(rows) + "\n", encoding="utf-8"
-    )
+    write_manifest(output)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

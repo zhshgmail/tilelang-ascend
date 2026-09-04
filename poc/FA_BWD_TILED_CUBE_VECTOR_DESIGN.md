@@ -1,6 +1,7 @@
 # Symbolic tiled Cube+Vector FA-Bwd checkpoint
 
-Status: device-free compiler checkpoint.  This document is not NPU precision or
+Status: device-free symbolic-IR checkpoint with a fail-closed Route-A source
+boundary.  This document is not generated-source, Bisheng, NPU precision, or
 performance evidence and does not change the A5Ops product gate.
 
 ## Bound contract
@@ -61,10 +62,46 @@ workspace, per-case table, or output-initialization requirement.
 
 - Python structural tests: symbolic family, exactly one PrimFunc, five GEMM
   roles, owner scheduling, no case specialization.
-- Route-A lowering for all three dtypes and generated-source structural audit.
+- Native TileLang/TVM construction and serialization for all three dtypes.
+- Route-A lowering for all three dtypes and generated-source structural audit
+  remains fail-closed at the boundary below.
 - A CANN 9.2 / Bisheng 15 DAV3510 compile-only receipt is still required if it
   is not available in the local device-free environment.
 - Only after compile admission: fresh NPU full50 precision + known-bad, then
   canonical same-candidate msprof performance.  No result from this document
   satisfies those product gates.
 
+## Exact compiler boundary
+
+The current compiler can construct and serialize all three PrimFuncs, but its
+automatic C/V splitter cannot lower the two non-isomorphic output-owner loops:
+
+```text
+TVMError: Mismatch in sync points between cube and vec for workspace
+workspace_13: cube has 1, vec has 8
+src/transform/ascend_combinecv.cc:375
+```
+
+`AutoInsertCrossCoreSync` groups static producer and consumer points by
+workspace and requires equal counts before assigning cross-core flags.  The dQ
+loop reduces over K tiles, whereas the dK/dV loop reduces over query groups and
+Q tiles; after `tl.ascend_auto_cv_combine`, one generated workspace therefore
+has different static use counts on the Cube and Vector sides.
+
+Turning off `tl.ascend_auto_cross_core_sync` is not an admissible workaround:
+it emits split Cube/Vector code without the necessary workspace handoff.  In
+addition, the broad legacy auto-sync mode emits `PIPE_ALL`, which Bisheng for
+DAV3510 rejects.  A truthful generated-source successor therefore requires one
+of these source-level changes:
+
+1. rewrite the kernel into explicit parallel `T.Scope("C")` and `T.Scope("V")`
+   state machines with bounded GM handoff buffers and matched
+   `set_cross_flag`/`wait_cross_flag` ownership, or
+2. extend CombineCV to model this dynamic, non-isomorphic control flow and
+   prove the generated handoff graph.
+
+The first is a substantial manual-kernel rewrite and the second is a compiler
+control-flow feature, not a safe flag change.  Until one is implemented and
+compiled, `emit_fa_bwd_tiled_source_checkpoint.py` retains all three IR files,
+writes `LOWERING_ERROR.txt` plus a hashed `RESULT.json`, returns 2, and refuses
+to admit generated source.
