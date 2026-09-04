@@ -27,7 +27,7 @@ GEMM_ROLE_DV = "P^T @ dY"
 TILED_FA_BWD_PASS_CONFIGS = {
     "tl.disable_safe_memory_legalize": True,
     "tl.ascend_auto_cv_combine": True,
-    "tl.ascend_auto_cv_sync": True,
+    "tl.ascend_auto_cross_core_sync": True,
     "tl.ascend_auto_sync": True,
     "tl.ascend_memory_planning": True,
     "tl.ascend_tail_mask": True,
