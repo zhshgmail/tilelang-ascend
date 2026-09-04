@@ -11,6 +11,7 @@ import pytest
 POC = Path(__file__).parent
 SOURCE = POC / "fa_bwd_tiled_symbolic_lowering.py"
 DRIVER = POC / "run_fa_bwd_real_lowering.py"
+EMITTER = POC / "emit_fa_bwd_tiled_source_checkpoint.py"
 FIXED50 = POC / "inputs" / "op29_fa_bwd_fixed50_shapes.csv"
 
 
@@ -61,6 +62,21 @@ def test_driver_selects_tiled_route_a_without_changing_dtype_variant_count() -> 
     assert "make_fa_bwd_tiled" in source
     assert 'target="ascendc", platform="A5"' in source
     assert '"real_tilelang_kernel_variants": len(plan.variants)' in source
+
+
+def test_checkpoint_emitter_is_device_free_and_fail_closed() -> None:
+    source = EMITTER.read_text(encoding="utf-8")
+    assert '"authority": "DEVICE_FREE_ROUTE_A_IR_AND_SOURCE_ONLY"' in source
+    assert '"npu_used": False' in source
+    assert '"bisheng_invoked": False' in source
+    assert 'kernel_path="tiled"' in source
+    assert "len(cases) != 50 or len(plan.variants) != 3" in source
+    for gate in (
+        "CANN_9_2_BISHENG_15_DAV3510_COMPILE_ONLY",
+        "FRESH_NPU_FIXED50_PRECISION_AND_KNOWN_BAD",
+        "CANONICAL_SAME_CANDIDATE_MSPROF_GE_1X",
+    ):
+        assert gate in source
 
 
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16", "float32"])
