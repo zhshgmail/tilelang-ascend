@@ -68,7 +68,7 @@ def main() -> int:
         ir_path = ir_dir / f"fa_bwd_{suffix}.tir"
         ir_text = function.script()
         ir_path.write_text(ir_text, encoding="utf-8")
-        gemm_intrinsics = ir_text.count("tl.ascend_gemm_v0")
+        gemm_intrinsics = ir_text.count("T.ascend_gemm_v0")
         if gemm_intrinsics < 5:
             raise AssertionError(
                 f"{variant.dtype}: expected five GEMM roles in Route-A IR, "
@@ -150,4 +150,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

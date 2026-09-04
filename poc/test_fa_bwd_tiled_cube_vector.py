@@ -92,5 +92,5 @@ def test_tiled_primfunc_builds_for_each_dtype(dtype: str) -> None:
     text = str(function)
     assert "ascendc_host_entry" in text
     assert "ascendc_kernel_entry" in text
-    assert "tl.ascend_gemm_v0" in text
+    assert "T.ascend_gemm_v0" in text
     assert all(name in text for name in ("B", "Sq", "Sk", "Hq", "Hk", "D"))
