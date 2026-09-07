@@ -332,6 +332,7 @@ Pass 设计详见 `.agents/skills/tilelang-pass-analyzer/references/pass-designs
 **说明**：
 - `mul_add_dst` 执行融合乘加操作，将 src0 和 src1 相乘后加到 dst 上
 - dst 既作为输入（累加器）也作为输出
+- AscendC 可显式给出 `mask`、`repeat_times`、`repeat_params`（必须同时给出）。六个步长按 `dstBlk, src0Blk, src1Blk, dstRep, src0Rep, src1Rep` 排列，以32字节为单位；零源步长表示广播。新形式限同 dtype FP16/FP32 连续 UB 区域及静态参数，逐次访问不得超出区域。repeat为1..255，stride为0..255，mask上限分别128/64；对齐/重叠和同步仍遵循目标CANN约束，PTO明确拒绝此形式。
 - 支持 half、float 类型（Atlas A2/A3）
 - 也支持 int16_t、uint16_t、int32_t、uint32_t（Atlas 200I/500 A2）
 

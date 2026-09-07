@@ -5,6 +5,7 @@ from tvm.tir import PrimExpr, Buffer, BufferRegion, BufferLoad, Call, IntImm, Ra
 from tvm import DataType, arith, tir
 from tilelang.language.ascend import _dtype, _get_tmp_arena_access_ptr
 import functools
+import builtins
 import warnings
 from typing import Any
 
@@ -1341,6 +1342,10 @@ def mul_add_dst(
     dst: Buffer | BufferRegion,
     src0: Buffer | BufferRegion,
     src1: Buffer | BufferRegion,
+    *,
+    mask: int | None = None,
+    repeat_times: int | None = None,
+    repeat_params: tuple[int, int, int, int, int, int] | None = None,
 ):
     """Performs element-wise multiply-add: dst = src0 * src1 + dst.
 
@@ -1352,6 +1357,12 @@ def mul_add_dst(
              Must be in UB (Unified Buffer) scope.
         src0: The first source buffer for multiplication.
         src1: The second source buffer for multiplication.
+        mask: Optional contiguous active lanes per repeat (AscendC only).
+        repeat_times: Static repeat count, 1..255; required with mask.
+        repeat_params: Six static 32-byte strides in BinaryRepeatParams order:
+            dst/src0/src1 block strides, then dst/src0/src1 repeat strides.
+            All three optional arguments must be supplied together. This form
+            supports same-dtype float16/float32 contiguous UB regions only.
 
     Returns:
         A TVM intrinsic call that performs the MulAddDst operation.
@@ -1382,6 +1393,67 @@ def mul_add_dst(
     size_dst = math.prod(dst_extent)
     size_src0 = math.prod(src0_extent)
     size_src1 = math.prod(src1_extent)
+
+    if any(x is not None for x in (mask, repeat_times, repeat_params)):
+        if any(x is None for x in (mask, repeat_times, repeat_params)):
+            raise ValueError("mul_add_dst requires mask, repeat_times and repeat_params together")
+        if not isinstance(repeat_params, (tuple, list)) or len(repeat_params) != 6:
+            raise ValueError("mul_add_dst repeat_params must contain six strides")
+        values = (mask, repeat_times, *repeat_params)
+        if any(isinstance(x, bool) or not isinstance(x, (int, IntImm)) for x in values):
+            raise ValueError("mul_add_dst repeat parameters must be static integers")
+        mask, repeat_times, *strides = map(int, values)
+        buffers = [x.buffer if isinstance(x, BufferRegion) else x for x in (dst, src0, src1)]
+        dtype = str(buffers[0].dtype)
+        if dtype not in ("float16", "float32") or any(str(b.dtype) != dtype for b in buffers):
+            raise ValueError("mul_add_dst repeat form requires matching float16/float32 buffers")
+        block_elements = 32 // (DataType(dtype).bits // 8)
+        if not 1 <= mask <= 8 * block_elements or not 1 <= repeat_times <= 255:
+            raise ValueError("mul_add_dst mask or repeat_times out of range")
+        if any(not 0 <= stride <= 255 for stride in strides):
+            raise ValueError("mul_add_dst strides must be in 0..255")
+        repeat_ptrs = []
+        for operand, buffer, extent, blk, rep, access in zip(
+            (dst, src0, src1),
+            buffers,
+            (dst_extent, src0_extent, src1_extent),
+            strides[:3],
+            strides[3:],
+            ("rw", "r", "r"),
+        ):
+            if buffer.scope() != "shared.ub" or len(buffer.strides):
+                raise ValueError("mul_add_dst repeat form requires contiguous UB buffers")
+            if isinstance(operand, BufferRegion):
+                # After the first non-unit dimension, a slice must contain full rows.
+                varying = False
+                analyzer = arith.Analyzer()
+                for region, shape in zip(operand.region, buffer.shape):
+                    if varying and not (analyzer.can_prove(region.min == 0) and analyzer.can_prove(region.extent == shape)):
+                        raise ValueError("mul_add_dst repeat form requires a contiguous region")
+                    varying |= not analyzer.can_prove(region.extent == 1)
+            if not all(isinstance(x, (int, IntImm)) for x in extent):
+                raise ValueError("mul_add_dst repeat form requires static region extents")
+            last_block_end = (mask - 1) // block_elements * blk * block_elements + (mask - 1) % block_elements + 1
+            # A zero block stride can make an earlier full block reach farther
+            # than the final partially active block.
+            repeat_end = builtins.max(builtins.min(mask, block_elements), last_block_end)
+            accessed = (repeat_times - 1) * rep * block_elements + repeat_end
+            if accessed > math.prod(int(x) for x in extent):
+                raise ValueError("mul_add_dst repeat access exceeds operand region")
+            if isinstance(operand, BufferRegion):
+                # offset_of includes elem_offset; access_ptr adds it itself.
+                offset = buffer.offset_of([r.min for r in operand.region])[0] - buffer.elem_offset
+                repeat_ptrs.append(buffer.access_ptr(access, offset=offset, extent=math.prod(extent)))
+            else:
+                repeat_ptrs.append(buffer.access_ptr(access))
+        return tir.call_intrin(
+            "handle",
+            tir.op.Op.get("tl.ascend_mul_add_dst"),
+            *repeat_ptrs,
+            mask,
+            repeat_times,
+            *strides,
+        )
 
     assert size_dst == size_src0 == size_src1, "dst, src0, and src1 must have the same size"
 

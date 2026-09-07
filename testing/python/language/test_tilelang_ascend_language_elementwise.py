@@ -533,6 +533,122 @@ def test_mul_add_dst(dtype, target, shape):
     run_test_mul_add_dst(M, N, 64, 128, dtype, target)
 
 
+def vec_mul_add_dst_repeat(dtype):
+    """Broadcast compact row/column operands without materializing two tiles."""
+    block_elements = 32 // (2 if dtype == "float16" else 4)
+
+    @T.prim_func
+    def main(
+        Q: T.Tensor((32, block_elements), dtype),
+        V: T.Tensor((32,), dtype),
+        C: T.Tensor((32, 32), dtype),
+        Out: T.Tensor((32, 32), dtype),
+    ):
+        with T.Kernel(1, is_npu=True) as (cid, vid):
+            q = T.alloc_ub((16, block_elements), dtype)
+            v = T.alloc_ub((32,), dtype)
+            c = T.alloc_ub((16, 32), dtype)
+            T.copy(Q[vid * 16, 0], q)
+            T.copy(V, v)
+            T.copy(C[vid * 16, 0], c)
+            T.tile.mul_add_dst(
+                c,
+                q,
+                v,
+                mask=32,
+                repeat_times=16,
+                repeat_params=(1, 0, 1, 32 // block_elements, 1, 0),
+            )
+            T.copy(c, Out[vid * 16, 0])
+
+    return main
+
+
+@pytest.mark.skipif(not hasattr(torch, "npu") or not torch.npu.is_available(), reason="requires NPU")
+@pytest.mark.parametrize("dtype", ["float16", "float32"])
+def test_mul_add_dst_repeat_broadcast(dtype):
+    # Powers of two and small integers make the fused result exactly representable.
+    torch_dtype = getattr(torch, dtype)
+    block_elements = 32 // (2 if dtype == "float16" else 4)
+    q = torch.arange(32, dtype=torch_dtype).reshape(32, 1).expand(32, block_elements)
+    v = torch.arange(32, dtype=torch_dtype) / 32
+    c = torch.ones((32, 32), dtype=torch_dtype)
+    expected = q[:, :1] * v + c
+    func = tilelang.compile(vec_mul_add_dst_repeat(dtype), out_idx=[-1], pass_configs=pass_configs, target="ascendc")
+    result = func(q.contiguous().npu(), v.npu(), c.npu(), torch.empty_like(c).npu())
+    torch.npu.synchronize()
+    torch.testing.assert_close(result.cpu(), expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("elem_offset", [0, 8])
+def test_mul_add_dst_repeat_region_offset_cpu(elem_offset):
+    b = tir.decl_buffer((64,), "float32", scope="shared.ub", elem_offset=elem_offset)
+    region = tir.BufferRegion(b, [tilelang.tvm.ir.Range.from_min_extent(8, 8)])
+    call = T.tile.mul_add_dst(region, region, region, mask=8, repeat_times=1, repeat_params=(1, 1, 1, 1, 1, 1))
+    for ptr, access in zip(call.args[:3], (3, 1, 1)):
+        assert int(ptr.args[2]) == elem_offset + 8
+        assert int(ptr.args[3]) == 8
+        assert int(ptr.args[4]) == access
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"mask": 32},
+        {"mask": 65, "repeat_times": 1, "repeat_params": (1, 1, 1, 1, 1, 1)},
+        {"mask": 32, "repeat_times": 0, "repeat_params": (1, 1, 1, 1, 1, 1)},
+        {"mask": 32, "repeat_times": 256, "repeat_params": (1, 1, 1, 1, 1, 1)},
+        {"mask": 32, "repeat_times": 1, "repeat_params": (1, 1, 256, 1, 1, 1)},
+        {"mask": 32, "repeat_times": 1, "repeat_params": (1, 1, -1, 1, 1, 1)},
+        {"mask": 32, "repeat_times": 1, "repeat_params": (True, 1, 1, 1, 1, 1)},
+        {"mask": 32, "repeat_times": 1, "repeat_params": (1, 1, 1, 1, 1)},
+    ],
+)
+def test_mul_add_dst_repeat_parameters_cpu(kwargs):
+    b = tir.decl_buffer((256,), "float32", scope="shared.ub")
+    with pytest.raises(ValueError):
+        T.tile.mul_add_dst(b, b, b, **kwargs)
+
+
+@pytest.mark.parametrize("size,valid", [(4, False), (8, True)])
+def test_mul_add_dst_repeat_partial_block_cpu(size, valid):
+    # A zero block stride with mask12 still accesses a full first FP32 block.
+    b = tir.decl_buffer((size,), "float32", scope="shared.ub")
+    if valid:
+        T.tile.mul_add_dst(b, b, b, mask=12, repeat_times=1, repeat_params=(0, 0, 0, 0, 0, 0))
+    else:
+        with pytest.raises(ValueError, match="exceeds"):
+            T.tile.mul_add_dst(b, b, b, mask=12, repeat_times=1, repeat_params=(0, 0, 0, 0, 0, 0))
+
+
+def test_mul_add_dst_repeat_region_contract_cpu():
+    b = tir.decl_buffer((4, 8), "float32", scope="shared.ub")
+    ranges = tilelang.tvm.ir.Range.from_min_extent
+    contiguous = tir.BufferRegion(b, [ranges(1, 2), ranges(0, 8)])
+    T.tile.mul_add_dst(contiguous, contiguous, contiguous, mask=8, repeat_times=2, repeat_params=(1, 1, 1, 1, 1, 1))
+    noncontiguous = tir.BufferRegion(b, [ranges(1, 2), ranges(1, 7)])
+    with pytest.raises(ValueError, match="contiguous region"):
+        T.tile.mul_add_dst(noncontiguous, noncontiguous, noncontiguous, mask=8, repeat_times=1, repeat_params=(1, 1, 1, 1, 1, 1))
+    with pytest.raises(ValueError, match="exceeds"):
+        T.tile.mul_add_dst(contiguous, contiguous, contiguous, mask=8, repeat_times=3, repeat_params=(1, 1, 1, 1, 1, 1))
+
+
+@pytest.mark.parametrize("dtype,scope", [("float16", "shared.ub"), ("float32", "global")])
+def test_mul_add_dst_repeat_operand_contract_cpu(dtype, scope):
+    dst = tir.decl_buffer((64,), "float32", scope="shared.ub")
+    src = tir.decl_buffer((64,), dtype, scope=scope)
+    with pytest.raises(ValueError):
+        T.tile.mul_add_dst(dst, src, src, mask=32, repeat_times=1, repeat_params=(1, 1, 1, 1, 1, 1))
+
+
+def test_mul_add_dst_repeat_pto_rejection_cpu():
+    with (
+        tilelang.tvm.transform.PassContext(config=pass_configs),
+        pytest.raises(Exception, match="explicit repeat strides are not supported by PTO"),
+    ):
+        tilelang.lower(vec_mul_add_dst_repeat("float32"), target="pto", platform="A5")
+
+
 def run_test_axpy_slice(M, N, block_M, block_N, target):
     func = axpy_slice(M, N, block_M, block_N)
     func = tilelang.compile(func, out_idx=[-1], pass_configs=pass_configs, target=target)
