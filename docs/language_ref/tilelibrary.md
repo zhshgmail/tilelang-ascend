@@ -1,6 +1,30 @@
 Tile Language: TileLibrary
 =========================
 
+T.tile.mul_add_dst (AscendC)
+---------------------------
+
+`mul_add_dst(dst, src0, src1)` computes the fused in-place accumulation
+`dst = src0 * src1 + dst` for equal-size buffers, as before.
+
+The optional `mask`, `repeat_times` and `repeat_params` arguments must be supplied
+together. They select the AscendC explicit-repeat overload. `repeat_params` is
+the six-element tuple `(dstBlk, src0Blk, src1Blk, dstRep, src0Rep, src1Rep)`;
+strides are measured in 32-byte blocks, not elements. Zero source strides
+broadcast a block or repeat. All parameters must be static integers; repeat
+counts are 1..255 and strides 0..255. A contiguous mask enables 1..64 float32
+lanes or 1..128 float16 lanes per repeat. Operands must have the same dtype and
+be contiguous UB buffers/regions with enough elements for every addressed lane.
+The supplied region must itself be valid within its backing buffer; the footprint
+check proves access within that region, not the validity of arbitrary region bounds.
+Callers must obey the selected CANN/SoC alignment and overlap constraints and
+arrange synchronization as for the original operation. PTO rejects this form.
+
+For example, a 32x32 FP32 destination, a compact 32x8 row-broadcast operand and
+a 32-element column operand can use `mask=32, repeat_times=32,
+repeat_params=(1, 0, 1, 4, 1, 0)`. This changes address traversal; it does not
+implicitly initialize the accumulator or perform a reduction across repeats.
+
 T.Kernel
 --------
 

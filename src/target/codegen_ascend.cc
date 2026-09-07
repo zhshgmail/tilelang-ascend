@@ -2978,6 +2978,8 @@ void CodeGenTileLangAscend::RoundCodegen(const CallNode *op,
 }
 
 void CodeGenTileLangAscend::MulAddDstCodegen(const CallNode *op) {
+  ICHECK(op->args.size() == 4U || op->args.size() == 11U)
+      << "MulAddDst expects count or explicit mask/repeat/stride arguments";
   // AscendC::MulAddDst(dst, src0, src1, count)
   // dst = src0 * src1 + dst (fused multiply-add)
   auto dst = PrintBufferOffset(op->args[0].as<CallNode>());
@@ -2986,8 +2988,29 @@ void CodeGenTileLangAscend::MulAddDstCodegen(const CallNode *op) {
   auto count = PrintExpr(op->args[3]);
 
   this->PrintIndent();
-  this->stream << "AscendC::MulAddDst(" << dst << ", " << src0 << ", " << src1
-               << ", " << count << ");\n";
+  this->stream << "AscendC::MulAddDst(" << dst << ", " << src0 << ", " << src1;
+  if (op->args.size() == 4U) {
+    this->stream << ", " << count << ");\n";
+    return;
+  }
+  const DataType dtype = GetAccessPtrDtype(op->args[0].as<CallNode>());
+  ICHECK(dtype == DataType::Float(16) || dtype == DataType::Float(32));
+  ICHECK_EQ(dtype, GetAccessPtrDtype(op->args[1].as<CallNode>()));
+  ICHECK_EQ(dtype, GetAccessPtrDtype(op->args[2].as<CallNode>()));
+  for (size_t i = 3; i < 11; ++i) {
+    const auto *value = op->args[i].as<IntImmNode>();
+    ICHECK(value) << "MulAddDst repeat parameters must be static integers";
+    const int64_t upper = i == 3 ? 2048 / dtype.bits() : 255;
+    ICHECK_GE(value->value, i < 5 ? 1 : 0);
+    ICHECK_LE(value->value, upper);
+  }
+  this->stream << ", static_cast<uint64_t>(" << count << "), "
+               << PrintExpr(op->args[4]) << ", AscendC::BinaryRepeatParams{";
+  for (size_t i = 5; i < 11; ++i) {
+    if (i != 5) this->stream << ", ";
+    this->stream << PrintExpr(op->args[i]);
+  }
+  this->stream << "});\n";
 }
 
 void CodeGenTileLangAscend::ClampMaxMinCodegen(const CallNode *op) {

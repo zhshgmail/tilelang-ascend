@@ -3476,6 +3476,8 @@ void CodeGenTileLangAscendPto::SiluCodegen(const CallNode *op) {
 }
 
 void CodeGenTileLangAscendPto::MulAddDstCodegen(const CallNode *op) {
+  ICHECK_EQ(op->args.size(), 4U)
+      << "MulAddDst explicit repeat strides are not supported by PTO";
   ShapeInfo dst_shape_info = GetSliceInfo(op->args[0].as<CallNode>());
   ShapeInfo src0_shape_info = GetSliceInfo(op->args[1].as<CallNode>());
   ShapeInfo src1_shape_info = GetSliceInfo(op->args[2].as<CallNode>());

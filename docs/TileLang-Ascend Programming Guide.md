@@ -1530,6 +1530,18 @@ Expert编程模式可以复用Developer模式的Reduce类计算原语。
 | 右移       | T.tile.bitwise_rshift(dst, src0, scalar) | element-wise 右移操作                                        |
 | 原子累加   | T.tile.atomic_add(dst, src)              | 将本地 tensor 原子累加到 GM，V1 支持 UB → GM 和 L0C -> GM        |
 
+**MulAddDst 显式重复步长（AscendC）**
+
+`T.tile.mul_add_dst(dst, src0, src1)` 保持原连续、等元素数融合累加语义。
+可同时指定 `mask`、`repeat_times` 与六元 `repeat_params`，直接选择硬件重复形式。
+六项为目的/源0/源1的块步长，随后为三者的重复步长，单位均为32字节。
+例如 FP32 的32×32目的、32×8紧凑行广播源和32元素列源，可使用
+`mask=32, repeat_times=32, repeat_params=(1,0,1,4,1,0)`。
+目标缓冲区须先初始化；该调用不跨repeat归约。新形式只接收同dtype的FP16/FP32
+连续UB区域和静态参数：mask范围1..128/1..64，repeat为1..255，stride为0..255。
+API检查区域容量，但调用者仍须满足目标CANN的对齐/重叠要求和同步要求。
+PTO不支持该形式并明确报错。设备能力与性能须在具体SoC/构建上验证。
+
 **(1) 基础算术**
 
 - `T.tile.add(dst, src0, src1)`:
